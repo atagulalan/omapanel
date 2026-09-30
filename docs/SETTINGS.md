@@ -39,8 +39,9 @@ those windows are not duplicated in the dynamic running section.
 | `previewQuality` | integer | `100` | Capture resolution as a percentage of the window; range 10–100 |
 | `animationDuration` | integer | `180` | Milliseconds for item and indicator animations; `0` disables motion |
 
-Closed pinned launchers keep the existing tooltip. Open windows hide that
-tooltip while a preview is scheduled or visible.
+Closed pinned launchers keep the existing tooltip; hovering one also
+dismisses any open or pending preview. Open windows hide that tooltip while a
+preview is scheduled or visible.
 
 ### Click actions
 

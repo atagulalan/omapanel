@@ -1,6 +1,9 @@
     property string displayLabel: ""
     property string iconName: ""
     property bool pointerHovered: false
+    // WidgetButton derives tooltipHovered from its own MouseArea, which
+    // `interactive: false` disables. Bar.showTooltip() requires it to be true.
+    readonly property bool tooltipHovered: visible && !concealed && pointerHovered
     readonly property bool ready: !!taskbar
     readonly property string resolvedLabel: {
         var name = displayLabel;

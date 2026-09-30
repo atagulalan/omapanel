@@ -801,10 +801,13 @@ BarWidget {
             previewHideTimer.stop();
             if (chip.bar)
                 chip.bar.hideTooltip(chip);
-            if (toplevel)
+            if (toplevel) {
                 requestPreview(chip, toplevel);
-            else if (!previewToplevel && !pendingPreviewToplevel && chip.bar)
-                chip.bar.showTooltip(chip, chip.tooltipText);
+            } else {
+                cancelPreview(null);
+                if (chip.bar)
+                    chip.bar.showTooltip(chip, chip.tooltipText);
+            }
             return ;
         }
         if (chip.bar)
@@ -1124,6 +1127,9 @@ BarWidget {
         property string displayLabel: ""
         property string iconName: ""
         property bool pointerHovered: false
+        // WidgetButton derives tooltipHovered from its own MouseArea, which
+        // `interactive: false` disables. Bar.showTooltip() requires it to be true.
+        readonly property bool tooltipHovered: visible && !concealed && pointerHovered
         readonly property bool ready: !!taskbar
         readonly property string resolvedLabel: {
             var name = displayLabel;

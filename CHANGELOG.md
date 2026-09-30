@@ -4,6 +4,12 @@ All notable changes to OmaPanel are documented here.
 
 ## Unreleased
 
+- Fix taskbar tooltips never appearing: chips now report `tooltipHovered`
+  from their own hover state, since Omarchy's bar only shows a tooltip while
+  the target reports it and `WidgetButton` ties it to its disabled mouse area.
+- Hovering a closed pinned application now dismisses a lingering window
+  preview and shows the launcher tooltip instead of leaving the previous
+  window's preview on screen.
 - Add an Auto height switch on the Previews page that sizes the thumbnail
   from the hovered window's aspect ratio.
 - Add a Preview quality percentage (10–100) that downsamples hover thumbnails.

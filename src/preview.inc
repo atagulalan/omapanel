@@ -60,10 +60,13 @@
             previewHideTimer.stop();
             if (chip.bar)
                 chip.bar.hideTooltip(chip);
-            if (toplevel)
+            if (toplevel) {
                 requestPreview(chip, toplevel);
-            else if (!previewToplevel && !pendingPreviewToplevel && chip.bar)
-                chip.bar.showTooltip(chip, chip.tooltipText);
+            } else {
+                cancelPreview(null);
+                if (chip.bar)
+                    chip.bar.showTooltip(chip, chip.tooltipText);
+            }
             return ;
         }
         if (chip.bar)
