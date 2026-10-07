@@ -32,7 +32,7 @@ BarWidget {
     readonly property bool showIcons: boolSetting("showIcons", true)
     readonly property bool invertIconColors: boolSetting("invertIconColors", false)
     readonly property bool showLabels: boolSetting("showLabels", true)
-    readonly property bool iconOnlyWhenClosed: boolSetting("iconOnlyWhenClosed", true)
+    readonly property bool iconOnlyWhenClosed: showLabels && boolSetting("iconOnlyWhenClosed", true)
     readonly property string leftClickAction: normalizedClickAction(setting("leftClickAction", "Focus or Launch"), "Focus or Launch")
     readonly property string rightClickAction: normalizedClickAction(setting("rightClickAction", "Open Context Menu"), "Open Context Menu")
     readonly property string middleClickAction: normalizedClickAction(setting("middleClickAction", "Do Nothing"), "Do Nothing")
@@ -2315,8 +2315,11 @@ BarWidget {
         SettingToggle {
             host: panel
             settingKey: "iconOnlyWhenClosed"
-            settingLabel: "Icon only when closed"
-            settingDescription: "Expand pinned apps when a matching window opens."
+            settingLabel: "Hide label of closed apps"
+            settingDescription: "Hide labels on closed pinned apps. Requires Labels. Must keep an icon visible."
+            enabled: panel.boolValue("showLabels", true)
+            opacity: enabled ? 1 : 0.45
+            activeFocusOnTab: enabled
             fallbackValue: true
         }
 

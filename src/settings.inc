@@ -5,7 +5,7 @@
     readonly property bool showIcons: boolSetting("showIcons", true)
     readonly property bool invertIconColors: boolSetting("invertIconColors", false)
     readonly property bool showLabels: boolSetting("showLabels", true)
-    readonly property bool iconOnlyWhenClosed: boolSetting("iconOnlyWhenClosed", true)
+    readonly property bool iconOnlyWhenClosed: showLabels && boolSetting("iconOnlyWhenClosed", true)
     readonly property string leftClickAction: normalizedClickAction(setting("leftClickAction", "Focus or Launch"), "Focus or Launch")
     readonly property string rightClickAction: normalizedClickAction(setting("rightClickAction", "Open Context Menu"), "Open Context Menu")
     readonly property string middleClickAction: normalizedClickAction(setting("middleClickAction", "Do Nothing"), "Do Nothing")

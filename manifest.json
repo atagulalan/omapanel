@@ -133,8 +133,8 @@
       {
         "key": "iconOnlyWhenClosed",
         "type": "boolean",
-        "label": "Icon only when closed",
-        "description": "Pinned apps show only their icon until a matching window opens.",
+        "label": "Hide label of closed apps",
+        "description": "Hide labels on closed pinned apps when application names are enabled.",
         "defaultValue": true
       },
       {
