@@ -398,6 +398,7 @@ BarWidget {
     readonly property var nativeWorkspaceIds: nativeWorkspaceReady ? nativeWorkspaceProvider.item.workspaceIds() : []
     property bool workspaceChangeBusy: false
     property var afterWorkspaceChange: null
+    property var queuedWorkspaceChange: null
 
     function workspaceRepeater(item) {
         if (!item) return null;
@@ -421,7 +422,10 @@ BarWidget {
     }
 
     function requestWorkspaceIntegration(enabled, after) {
-        if (workspaceProcess.running) return;
+        if (workspaceProcess.running) {
+            queuedWorkspaceChange = {enabled: enabled, after: after || null};
+            return;
+        }
         if (enabled && (!groupRunningByWorkspace || !nativeWorkspaceReady)) {
             Quickshell.execDetached(["omarchy", "notification", "send", "Workspace integration unavailable",
                 "The installed workspace widget is incompatible. The standalone switcher has been kept."]);
@@ -461,12 +465,16 @@ BarWidget {
                 if (after.reset) taskbar.persistSettings(taskbar.defaultSettings());
                 else taskbar.persistSetting(after.key, after.value);
             }
+            var queued = taskbar.queuedWorkspaceChange;
+            taskbar.queuedWorkspaceChange = null;
+            if (queued) Qt.callLater(function() { taskbar.requestWorkspaceIntegration(queued.enabled, queued.after); });
         }
     }
     Timer {
         id: workspaceSync
         interval: 500
         onTriggered: {
+            if (workspaceProcess.running) { workspaceSync.restart(); return; }
             if (taskbar.integrateWorkspaces) taskbar.requestWorkspaceIntegration(taskbar.workspaceIntegrationActive, null);
         }
     }
