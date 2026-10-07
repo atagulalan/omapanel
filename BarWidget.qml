@@ -153,10 +153,10 @@ BarWidget {
             var app = pinnedApps[i];
             var windows = visibleDescriptorWindows(app, null);
             var key = "pin:" + app.desktopId + ":" + app.match;
-            if (windows.length === 0 || groupRunningByApp) {
-                result.push({app: app, window: windows[0] || null,
-                    key: key, windows: windows,
-                    launchOnly: false, hasWindows: windowsForDescriptor(app, null).length > 0});
+            if (groupRunningByWorkspace || windows.length === 0 || groupRunningByApp) {
+                result.push({app: app, window: groupRunningByWorkspace ? null : (windows[0] || null),
+                    key: key, windows: groupRunningByWorkspace ? [] : windows,
+                    launchOnly: groupRunningByWorkspace, hasWindows: windowsForDescriptor(app, null).length > 0});
             } else {
                 for (var j = 0; j < windows.length; j++)
                     result.push({app: app, window: windows[j], key: key + ":" + normalizedAddress(windows[j]),
@@ -177,7 +177,7 @@ BarWidget {
             if (!candidate || !windowClass(candidate))
                 continue;
 
-            if (isPinnedWindow(candidate) || isExcludedWindow(candidate))
+            if ((!groupRunningByWorkspace && isPinnedWindow(candidate)) || isExcludedWindow(candidate))
                 continue;
 
             result.push(candidate);
