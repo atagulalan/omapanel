@@ -16,7 +16,7 @@ PopupCard {
     }
     owner: taskbar
     bar: taskbar ? taskbar.bar : null
-    open: !!(taskbar && taskbar.showWindowPreviews && taskbar.previewToplevel !== null && taskbar.previewAnchor !== null)
+    open: !!(taskbar && !taskbar.opened && taskbar.showWindowPreviews && taskbar.previewToplevel !== null && taskbar.previewAnchor !== null)
     triggerMode: "hover"
     onAnchorItemChanged: {
         if (!previewCard.open)

@@ -740,6 +740,7 @@ BarWidget {
     }
 
     function openContextMenu(anchor, app, toplevel) {
+        cancelPreview(null);
         settingsPanelOpen = false;
         contextAnchor = anchor;
         contextApp = descriptorFor(app, toplevel);
@@ -760,6 +761,10 @@ BarWidget {
     }
 
     function commitPreview(anchor, toplevel) {
+        if (opened || !showWindowPreviews || !anchor || !toplevel) {
+            cancelPreview(null);
+            return;
+        }
         clearPendingPreview();
         previewHideTimer.stop();
         previewAnchor = anchor;
@@ -767,7 +772,7 @@ BarWidget {
     }
 
     function requestPreview(anchor, toplevel) {
-        if (!showWindowPreviews || !toplevel) {
+        if (opened || !showWindowPreviews || !toplevel) {
             cancelPreview(null);
             return ;
         }
@@ -830,6 +835,7 @@ BarWidget {
     }
 
     function openSettingsPanel() {
+        cancelPreview(null);
         contextMenuOpen = false;
         Qt.callLater(function() {
             settingsPanelOpen = true;
@@ -1707,7 +1713,7 @@ BarWidget {
         }
         owner: taskbar
         bar: taskbar ? taskbar.bar : null
-        open: !!(taskbar && taskbar.showWindowPreviews && taskbar.previewToplevel !== null && taskbar.previewAnchor !== null)
+        open: !!(taskbar && !taskbar.opened && taskbar.showWindowPreviews && taskbar.previewToplevel !== null && taskbar.previewAnchor !== null)
         triggerMode: "hover"
         onAnchorItemChanged: {
             if (!previewCard.open)
