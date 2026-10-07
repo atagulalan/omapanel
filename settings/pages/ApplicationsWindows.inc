@@ -32,6 +32,16 @@
         settingDescription: "One icon per app; click to cycle windows. Combine with workspace grouping."
     }
 
+    SettingToggle {
+        host: panel
+        settingKey: "integrateWorkspaces"
+        settingLabel: "Integrate with workspace plugin"
+        settingDescription: "Use Omarchy’s native workspace buttons before each workspace’s apps."
+        enabled: panel.boolValue("groupRunningByWorkspace", true)
+        opacity: enabled ? 1 : 0.45
+        activeFocusOnTab: enabled
+    }
+
     SettingNumber {
         host: panel
         settingKey: "maxRunningWindows"

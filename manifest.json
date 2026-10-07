@@ -89,7 +89,8 @@
       "previewAutoHeight": false,
       "previewQuality": 100,
       "groupRunningByApp": false,
-      "stylizedIcons": false
+      "stylizedIcons": false,
+      "integrateWorkspaces": false
     },
     "schema": [
       {
@@ -663,6 +664,13 @@
         "type": "boolean",
         "label": "Stylized icons",
         "description": "Use locally generated monochrome icons tinted by the current theme.",
+        "defaultValue": false
+      },
+      {
+        "key": "integrateWorkspaces",
+        "type": "boolean",
+        "label": "Integrate with workspace plugin",
+        "description": "Reuse native workspace buttons before each workspace group; requires workspace grouping.",
         "defaultValue": false
       }
     ]

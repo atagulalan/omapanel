@@ -1,4 +1,4 @@
-    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0)
+    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0 || workspaceIntegrationActive)
     implicitWidth: visible ? chrome.implicitWidth : 0
     implicitHeight: barSize
 

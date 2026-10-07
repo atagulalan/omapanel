@@ -16,6 +16,7 @@ BarWidget {
     moduleName: "atagulalan.omapanel"
     Component.onCompleted: {
         if (stylizedIcons) scheduleIconScan(true, false);
+        if (integrateWorkspaces) workspaceSync.restart();
     }
 
     // @include settings.inc
@@ -23,6 +24,7 @@ BarWidget {
     // @include groups.inc
     // @include icons.inc
     // @include icon-processes.inc
+    // @include workspaces.inc
     // @include helpers.inc
     // @include windows.inc
     // @include exclusions.inc

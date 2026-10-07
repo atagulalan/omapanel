@@ -55,10 +55,10 @@ Item {
         }
         TaskbarSeparator {
             taskbar: taskbar
-            visible: taskbar.sectionSeparator && chrome.pinnedCount > 0 && chrome.runningCount > 0
+            visible: taskbar.sectionSeparator && chrome.pinnedCount > 0 && (chrome.runningCount > 0 || taskbar.workspaceIntegrationActive)
         }
         Repeater {
-            model: taskbar.runningGroups.length
+            model: taskbar.workspaceIntegrationActive ? 0 : taskbar.runningGroups.length
             Row {
                 id: runningDelegate
                 required property int index
@@ -79,6 +79,22 @@ Item {
                     pinned: false
                     includeLeadingHitPadding: !chrome.trimEdges || runningDelegate.index > 0 || chrome.pinnedCount > 0
                     includeTrailingHitPadding: !chrome.trimEdges || runningDelegate.index < chrome.runningCount - 1
+                }
+            }
+        }
+        Repeater {
+            model: taskbar.workspaceIntegrationActive ? taskbar.nativeWorkspaceIds.length : 0
+            Row {
+                id: workspaceDelegate
+                required property int index
+                spacing: 0
+                TaskbarSeparator {
+                    taskbar: taskbar
+                    visible: taskbar.sectionSeparator && workspaceDelegate.index > 0
+                }
+                WorkspaceLane {
+                    taskbar: taskbar
+                    workspaceId: taskbar.nativeWorkspaceIds[workspaceDelegate.index]
                 }
             }
         }

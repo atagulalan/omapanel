@@ -68,6 +68,7 @@
             if ((!groupRunningByWorkspace && isPinnedWindow(candidate)) || isExcludedWindow(candidate))
                 continue;
 
+            if (workspaceIntegrationActive && (windowWorkspaceId(candidate) <= 0 || nativeWorkspaceIds.indexOf(windowWorkspaceId(candidate)) < 0)) continue;
             result.push(candidate);
         }
         if (groupRunningByWorkspace)
