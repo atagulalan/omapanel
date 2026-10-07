@@ -30,6 +30,7 @@ INLINE_FILES = [
     "taskbar/WorkspaceLane.qml",
     "settings/fields/SettingToggle.qml",
     "settings/fields/IconGeneration.qml",
+    "settings/fields/IconGenerationControl.qml",
     "settings/fields/SettingDropdown.qml",
     "settings/fields/SettingNumber.qml",
     "settings/fields/SettingOptionalNumber.qml",

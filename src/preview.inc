@@ -12,6 +12,7 @@
         contextMenuOpen = false;
         settingsPanelOpen = false;
         agentPromptOpen = false;
+        agentPromptRequested = false;
         cancelPreview(null);
     }
 

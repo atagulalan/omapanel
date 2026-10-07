@@ -3,6 +3,8 @@
     property bool iconRefreshPending: false
     property bool iconPromptPending: false
     property bool agentPromptOpen: false
+    property bool agentPromptRequested: false
+    property bool agentPromptReady: false
     property string agentPromptText: ""
     property string iconStatus: ""
     readonly property bool iconWorkInProgress: iconProcess.running
@@ -69,9 +71,10 @@
 
     function requestAgentPrompt() {
         cancelPreview(null);
-        settingsPanelOpen = false;
+        if (iconWorkInProgress) return;
+        agentPromptRequested = true;
+        agentPromptReady = false;
         agentPromptText = "Checking installed applications…";
-        agentPromptOpen = true;
         scheduleIconScan(true, true);
     }
 

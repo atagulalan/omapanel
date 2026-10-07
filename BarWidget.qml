@@ -252,6 +252,8 @@ BarWidget {
     property bool iconRefreshPending: false
     property bool iconPromptPending: false
     property bool agentPromptOpen: false
+    property bool agentPromptRequested: false
+    property bool agentPromptReady: false
     property string agentPromptText: ""
     property string iconStatus: ""
     readonly property bool iconWorkInProgress: iconProcess.running
@@ -318,9 +320,10 @@ BarWidget {
 
     function requestAgentPrompt() {
         cancelPreview(null);
-        settingsPanelOpen = false;
+        if (iconWorkInProgress) return;
+        agentPromptRequested = true;
+        agentPromptReady = false;
         agentPromptText = "Checking installed applications…";
-        agentPromptOpen = true;
         scheduleIconScan(true, true);
     }
 
@@ -366,15 +369,27 @@ BarWidget {
                     }
                     taskbar.iconIndex = result;
                     taskbar.iconStatus = result.errors.length ? result.errors.length + " icon(s) need attention" : "";
-                    if (result.prompt !== undefined) taskbar.agentPromptText = result.prompt;
+                    if (result.prompt !== undefined) {
+                        taskbar.agentPromptText = result.prompt;
+                        taskbar.agentPromptReady = true;
+                    }
                 } catch (error) { taskbar.iconStatus = "Icon generation failed: " + error; }
             }
         }
         stderr: StdioCollector {
             onStreamFinished: if (text.trim()) console.warn("OmaPanel icons:", text.trim());
         }
-        onExited: {
-            if (taskbar.iconRefreshPending || taskbar.iconPromptPending) iconScanDelay.restart();
+        onExited: function(code) {
+            if (taskbar.iconRefreshPending || taskbar.iconPromptPending) { iconScanDelay.restart(); return; }
+            if (taskbar.agentPromptRequested) {
+                var ready = code === 0 && taskbar.agentPromptReady;
+                taskbar.agentPromptRequested = false;
+                taskbar.agentPromptReady = false;
+                if (ready && taskbar.settingsPanelOpen) {
+                    taskbar.settingsPanelOpen = false;
+                    Qt.callLater(function() { taskbar.agentPromptOpen = true; });
+                } else if (!ready && !taskbar.iconStatus) taskbar.iconStatus = "Icon generation failed. Try again.";
+            }
         }
     }
     Process { id: iconClipboard }
@@ -1067,6 +1082,7 @@ BarWidget {
         contextMenuOpen = false;
         settingsPanelOpen = false;
         agentPromptOpen = false;
+        agentPromptRequested = false;
         cancelPreview(null);
     }
 
@@ -2345,7 +2361,6 @@ BarWidget {
         id: generation
         required property var host
         readonly property var worker: host.owner
-        readonly property bool busy: !!worker && worker.iconWorkInProgress
         width: parent ? parent.width : 0
         spacing: Style.space(8)
 
@@ -2356,51 +2371,134 @@ BarWidget {
             settingDescription: "Theme-colored monochrome symbols; missing icons are generated locally."
         }
 
-        Row {
+        BorderSurface {
+            id: agentBox
             width: parent.width
-            spacing: Style.space(8)
-            visible: generation.busy || (!!generation.worker && generation.worker.iconStatus !== "")
-            Text {
-                id: workGlyph
+            implicitHeight: Math.max(54, agentRow.implicitHeight + Style.spacing.huge)
+            color: Style.normalFillFor(generation.host.contentForeground, Color.accent)
+            radius: Style.cornerRadius
+            borderSpec: Border.controlSpec("normal", generation.host.contentForeground, Color.accent)
+            Row {
+                id: agentRow
+                anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                visible: generation.busy
-                text: "\udb82\udd96"
-                textFormat: Text.PlainText
-                color: generation.host.contentForeground
-                font.family: generation.host.contentFontFamily
-                font.pixelSize: Style.font.body
-                RotationAnimator on rotation {
-                    running: generation.busy && generation.visible
-                    from: 0
-                    to: 360
-                    duration: 800
-                    loops: Animation.Infinite
+                anchors.leftMargin: agentBox.borderLeft + Style.spacing.rowPaddingX
+                anchors.rightMargin: agentBox.borderRight + Style.spacing.rowPaddingX
+                spacing: Style.spacing.rowPaddingX
+                Column {
+                    width: parent.width - agentControl.width - parent.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.spacing.xs
+                    Text {
+                        width: parent.width
+                        text: "Generate icons with default Agent"
+                        textFormat: Text.PlainText
+                        color: generation.host.contentForeground
+                        font.family: generation.host.contentFontFamily
+                        font.pixelSize: Style.font.subtitle
+                        font.bold: true
+                        wrapMode: Text.WordWrap
+                    }
+                    Text {
+                        width: parent.width
+                        text: "Generate missing or outdated monochrome icons."
+                        textFormat: Text.PlainText
+                        color: Qt.darker(generation.host.contentForeground, 1.5)
+                        font.family: generation.host.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        wrapMode: Text.WordWrap
+                    }
+                }
+                IconGenerationControl {
+                    id: agentControl
+                    width: implicitWidth
+                    height: implicitHeight
+                    anchors.verticalCenter: parent.verticalCenter
+                    worker: generation.worker
+                    foreground: generation.host.contentForeground
+                    fontFamily: generation.host.contentFontFamily
                 }
             }
-            Text {
-                width: parent.width - (generation.busy ? workGlyph.width + parent.spacing : 0)
-                text: generation.busy ? "Generating stylized icons…" : (generation.worker ? generation.worker.iconStatus : "")
-                textFormat: Text.PlainText
-                color: generation.host.contentForeground
-                font.family: generation.host.contentFontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-            }
         }
+        Text {
+            width: parent.width
+            visible: !!generation.worker && generation.worker.iconStatus !== ""
+            text: generation.worker ? generation.worker.iconStatus : ""
+            textFormat: Text.PlainText
+            color: generation.host.contentForeground
+            font.family: generation.host.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    component IconGenerationControl: Item {
+        id: control
+        required property var worker
+        required property color foreground
+        required property string fontFamily
+        readonly property bool busy: !!worker && worker.iconWorkInProgress
+        readonly property var tooltipBorder: Border.localOrSurfaceSpec("tooltip", "border",
+            Color.tooltip.border, Color.tooltip.border, Math.max(1, Style.normalBorderWidth))
+        implicitWidth: alignmentGuide.implicitWidth
+        implicitHeight: alignmentGuide.implicitHeight
+        ToggleSwitch { id: alignmentGuide; visible: false; interactive: false }
 
         Button {
-            width: parent.width
-            text: "Generate icons with default Agent"
+            anchors.fill: parent
+            visible: !control.busy
             iconText: "\udb81\udea9"
             bordered: true
             focusable: true
-            leftAlign: true
-            foreground: generation.host.contentForeground
-            fontFamily: generation.host.contentFontFamily
-            horizontalPadding: Style.space(12)
-            verticalPadding: Style.space(12)
-            tooltipText: "Check missing or outdated monochrome icons and prepare an agent prompt"
-            onClicked: generation.worker.requestAgentPrompt()
+            foreground: control.foreground
+            fontFamily: control.fontFamily
+            tooltipText: "Generate icons with default Agent"
+            onClicked: if (!control.busy) control.worker.requestAgentPrompt()
+        }
+        Rectangle {
+            anchors.fill: parent
+            visible: control.busy
+            color: Style.normalFillFor(control.foreground, Color.accent)
+            radius: Style.cornerRadius
+            Text {
+                anchors.centerIn: parent
+                text: "\udb82\udd96"
+                textFormat: Text.PlainText
+                color: control.foreground
+                font.family: control.fontFamily
+                font.pixelSize: Style.font.icon
+                RotationAnimation on rotation {
+                    running: control.busy && control.visible
+                    from: 0
+                    to: 360
+                    duration: 900
+                    loops: Animation.Infinite
+                }
+            }
+            HoverHandler { id: busyHover }
+        }
+        QQC.ToolTip {
+            visible: control.busy && busyHover.hovered
+            text: "Generating stylized icons…"
+            delay: 400
+            padding: 0
+            background: BorderSurface {
+                color: Color.tooltip.background
+                borderSpec: control.tooltipBorder
+                radius: 0
+            }
+            contentItem: Text {
+                text: "Generating stylized icons…"
+                textFormat: Text.PlainText
+                color: Color.tooltip.text
+                font.family: control.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                leftPadding: Border.left(control.tooltipBorder) + Style.spacing.controlPaddingX
+                rightPadding: Border.right(control.tooltipBorder) + Style.spacing.controlPaddingX
+                topPadding: Border.top(control.tooltipBorder) + Style.spacing.controlPaddingY
+                bottomPadding: Border.bottom(control.tooltipBorder) + Style.spacing.controlPaddingY
+            }
         }
     }
 
