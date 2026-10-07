@@ -41,7 +41,7 @@
     function launchNewWindow(app, toplevel) {
         var descriptor = descriptorFor(app, toplevel);
         var entry = desktopEntryFor(descriptor, toplevel);
-        if (entry && bar && bar.shell && bar.shell.appLibrary) {
+        if (entry && !entry.tui && bar && bar.shell && bar.shell.appLibrary) {
             var id = normalizeDesktopId(entry.id || descriptor.desktopId);
             if (id) {
                 bar.shell.appLibrary.launch(id, asPlainUiText(String(entry.name || descriptor.label || id)));

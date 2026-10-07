@@ -15,12 +15,14 @@ BarWidget {
 
     moduleName: "atagulalan.omapanel"
     Component.onCompleted: {
+        scheduleTuiScan();
         if (stylizedIcons) scheduleIconScan(true, false);
         if (integrateWorkspaces) workspaceSync.restart();
     }
 
     // @include settings.inc
     // @include state.inc
+    // @include tui.inc
     // @include groups.inc
     // @include icons.inc
     // @include icon-processes.inc

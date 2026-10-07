@@ -5,6 +5,7 @@
     Connections {
         function onRawEvent(event) {
             taskbar.hyprlandRevision++;
+            if (/^(openwindow|closewindow|windowtitle)/.test(event.name)) taskbar.scheduleTuiScan();
             if (taskbar.previewToplevel && !taskbar.previewToplevelAlive(taskbar.previewToplevel))
                 taskbar.cancelPreview(taskbar.previewToplevel);
         }

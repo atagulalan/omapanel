@@ -54,9 +54,9 @@
 
     Connections {
         target: DesktopEntries.applications
-        function onValuesChanged() { if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
+        function onValuesChanged() { taskbar.scheduleTuiScan(); if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
     }
     Connections {
         target: Hyprland.toplevels
-        function onValuesChanged() { if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
+        function onValuesChanged() { taskbar.scheduleTuiScan(); if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
     }

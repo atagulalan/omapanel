@@ -22,7 +22,7 @@
         return {
             "label": windowLabel(toplevel),
             "match": appClass ? "^" + regexEscape(appClass) + "$" : "",
-            "launch": launchCommandForDesktopId(desktopId),
+            "launch": entry && entry.tui ? entry.launch : launchCommandForDesktopId(desktopId),
             "icon": sanitizeIconName(entry && entry.icon ? entry.icon : windowIcon(toplevel)),
             "desktopId": desktopId
         };
@@ -31,7 +31,7 @@
     function desktopEntryFor(app, toplevel) {
         var desktopId = normalizeDesktopId(app && app.desktopId ? app.desktopId : "");
         if (desktopId) {
-            var byId = DesktopEntries.byId(desktopId) || DesktopEntries.byId(desktopId + ".desktop");
+            var byId = tuiEntryById(desktopId) || DesktopEntries.byId(desktopId) || DesktopEntries.byId(desktopId + ".desktop");
             if (byId)
                 return byId;
 

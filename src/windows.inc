@@ -1,4 +1,6 @@
     function appMatchesWindow(app, toplevel) {
+        if (app && app.desktopId && tuiEntryFor(toplevel))
+            return normalizeDesktopId(tuiEntryFor(toplevel).id) === normalizeDesktopId(app.desktopId);
         if (!app || !patternMatches(String(app.match || ""), windowCandidates(toplevel)))
             return false;
 
@@ -34,7 +36,7 @@
 
         var patterns = Identity.exclusionPatterns(excludedClasses);
         var entry = windowDesktopEntry(toplevel);
-        var webappName = Identity.isWebapp(entry, windowCandidates(toplevel)) && entry ? Identity.normalizedName(entry.name) : "";
+        var webappName = (tuiEntryFor(toplevel) || Identity.isWebapp(entry, windowCandidates(toplevel))) && entry ? Identity.normalizedName(entry.name) : "";
         var candidates = windowCandidates(toplevel);
         for (var i = 0; i < patterns.length; i++) {
             if ((webappName && Identity.normalizedName(patterns[i]) === webappName)
@@ -65,6 +67,8 @@
     }
 
     function windowDesktopEntry(toplevel) {
+        var tui = tuiEntryFor(toplevel);
+        if (tui) return tui;
         var candidates = windowCandidates(toplevel);
         var entries = DesktopEntries.applications.values || [];
         var exact = Identity.matchingEntry(candidates, entries);

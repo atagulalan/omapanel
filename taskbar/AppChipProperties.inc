@@ -16,6 +16,8 @@
         if (iconName)
             return iconName;
 
+        var tui = taskbar && app ? taskbar.tuiEntryById(app.desktopId) : null;
+        if (tui && tui.icon) return String(tui.icon);
         if (app && app.icon)
             return String(app.icon);
 

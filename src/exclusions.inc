@@ -3,7 +3,7 @@
         var candidates = windowCandidates(contextWindow);
         if (!candidates.length && contextApp && contextApp.desktopId)
             candidates = [contextApp.desktopId];
-        var webapp = Identity.isWebapp(entry, candidates);
+        var webapp = tuiEntryFor(contextWindow) || (entry && tuiIndex.entries[entry.id]) || Identity.isWebapp(entry, candidates);
         var token = webapp && entry && entry.name ? String(entry.name).trim()
             : (contextApp ? String(contextApp.match || "") : "");
         if (!token) return;

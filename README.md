@@ -64,7 +64,8 @@ The plugin uses the permanent namespaced ID `atagulalan.omapanel`.
 - Hyprland
 - Quickshell and the Omarchy Shell QML modules
 - `hyprctl` for focus and close actions
-- Python 3 and ImageMagick (`magick`) for optional stylized icons
+- Python 3 for identifying Omarchy-launched terminal apps
+- ImageMagick (`magick`) for optional stylized icons
 - `wl-copy` for copying the optional agent prompt
 
 OmaPanel is a horizontal bar widget. It intentionally hides itself on vertical
@@ -129,6 +130,12 @@ The robot button checks missing or stale agent icons and opens a prompt with
 **Run default agent** and **Copy prompt** actions. Agent icons take precedence;
 the separate local script cache remains the fallback. New apps are handled
 automatically. Switching stylized icons off and on checks original icon changes.
+
+Omarchy-launched TUIs retain their own app identity. Marked terminal windows
+resolve their running program against TUI desktop launchers or bundled agent
+names/assets, so Codex shows its Codex icon and groups separately from terminals.
+Hide saves the recognized TUI name; `codex` excludes Codex windows. Ordinary
+terminal windows keep their terminal identity, regardless of their title.
 
 Use the gear button in the upper-right corner of that menu to open
 **OmaPanel Settings**. Changes are written immediately to the

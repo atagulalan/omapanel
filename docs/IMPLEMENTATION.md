@@ -345,3 +345,15 @@ node tests/identity.test.cjs
 node tests/groups.test.cjs
 python3 -B -m unittest discover -s tests -p 'test_*.py'
 ```
+
+## TUI identities
+
+`tui-identities.py` receives window PIDs/classes and desktop descriptors from
+QML. It scans bounded descendant process names beneath user-owned windows only for marked
+Omarchy TUI classes. TUI desktop commands take precedence over synthetic agent
+entries derived from the installed menu and bundled SVGs. Shared classes are
+resolved by actual program; ambiguous desktop matches are left unresolved.
+QML updates window names, icons, app grouping, pin matching and exclusion names
+from the resulting identity index. Closed pins retain a catalog entry for launch
+and theme-appropriate icons. Resolution does not relabel ordinary terminals by
+mutable titles or scan unrelated system processes.

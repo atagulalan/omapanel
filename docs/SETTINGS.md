@@ -34,7 +34,7 @@ into one icon by application grouping.
 | `iconOnlyWhenClosed` | boolean | `true` | Hide label of closed apps; disabled when Labels is off |
 | `labelFormat` | string | `[APP_NAME] - [WINDOW_TITLE]` | Label template for open windows |
 | `maxRunningWindows` | integer | `12` | Maximum dynamic icons/groups; range 1–30 |
-| `excludedClasses` | string | empty | Comma-separated native class regexes or exact webapp names, case-insensitive |
+| `excludedClasses` | string | empty | Comma-separated native class regexes or exact webapp/recognized TUI names, case-insensitive |
 | `showWindowPreviews` | boolean | `false` | Show clickable live thumbnails for windows in the hovered group |
 | `previewDelay` | integer | `350` | Milliseconds to wait before showing a window preview; range 0–1500 |
 | `previewWidth` | integer | `320` | Preview thumbnail width; range 160–640 |
@@ -277,3 +277,17 @@ python3 -B ~/.config/omarchy/plugins/atagulalan.omapanel/scripts/workspace-integ
 
 If the plugin files have already been removed, enable the stock switcher with
 `omarchy plugin enable omarchy.workspaces --section left`.
+
+## Terminal applications
+
+Windows launched with Omarchy’s `org.omarchy.<program>` or shared `TUI.tile` /
+`TUI.float` classes can use the running program’s desktop-entry name/icon.
+The shared `org.omarchy.agent` class resolves the actual agent process; Codex
+uses its installed Omarchy menu name and bundled SVG asset, including the light
+variant on light themes. Recognition reads only processes below marked windows,
+not session titles. Ordinary terminals retain their terminal identity.
+
+App grouping, pinning and name exclusions use the resolved program identity.
+Hide stores `Codex` for Codex windows; lowercase `codex` works too. Existing class
+regexes continue to work. Ambiguous or unrecognized TUIs retain the original
+fallback rather than being assigned a different app’s icon.
