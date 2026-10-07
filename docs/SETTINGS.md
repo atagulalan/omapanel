@@ -235,6 +235,10 @@ Right-click pin and unpin actions normalize the array and write it back to
 
 ## Stylized icon lifecycle
 
+A rotating glyph and status line indicate queued or running icon generation.
+The separate **Generate icons with default Agent** box retains the robot icon
+and opens the missing/stale icon prompt.
+
 The optional generator requires Python 3 and ImageMagick. Script icons and the
 source-provenance index live in `$XDG_CACHE_HOME/omapanel/stylized-icons`
 (default `~/.cache/omapanel/stylized-icons`). Agent SVG/PNG overrides live in

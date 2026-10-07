@@ -5,6 +5,8 @@
     property bool agentPromptOpen: false
     property string agentPromptText: ""
     property string iconStatus: ""
+    readonly property bool iconWorkInProgress: iconProcess.running
+        || ((stylizedIcons || iconPromptPending) && (iconScanDelay.running || iconRefreshPending || iconPromptPending))
     function iconApplications() {
         var entries = DesktopEntries.applications.values || [];
         var result = [], seen = {};

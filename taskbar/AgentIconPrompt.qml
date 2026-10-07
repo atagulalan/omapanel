@@ -48,10 +48,14 @@ KeyboardPanel {
             spacing: Style.space(8)
             Button {
                 text: "Run with default agent"
-                enabled: taskbar.agentPromptText !== "Checking installed applications…"
+                enabled: !taskbar.iconWorkInProgress && taskbar.agentPromptText !== "Checking installed applications…"
                 onClicked: taskbar.launchIconAgent()
             }
-            Button { text: "Copy prompt"; onClicked: taskbar.copyIconPrompt() }
+            Button {
+                text: "Copy prompt"
+                enabled: !taskbar.iconWorkInProgress && taskbar.agentPromptText !== "Checking installed applications…"
+                onClicked: taskbar.copyIconPrompt()
+            }
             Button { text: "Close"; onClicked: taskbar.close() }
         }
     }

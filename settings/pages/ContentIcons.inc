@@ -42,23 +42,8 @@
 
     }
 
-    Row {
-        width: parent.width
-        spacing: Style.space(8)
-        SettingToggle {
-            host: panel
-            width: parent.width - robotButton.width - parent.spacing
-            settingKey: "stylizedIcons"
-            settingLabel: "Stylized icons"
-            settingDescription: "Theme-colored monochrome symbols; missing icons are generated locally."
-        }
-        Button {
-            id: robotButton
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: "\udb81\udea9"
-            tooltipText: "Generate missing monochrome icons with your default agent"
-            onClicked: panel.owner.requestAgentPrompt()
-        }
+    IconGeneration {
+        host: panel
     }
 
     SettingToggle {
