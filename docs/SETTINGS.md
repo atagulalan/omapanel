@@ -44,7 +44,10 @@ into one icon by application grouping.
 | `animationDuration` | integer | `180` | Milliseconds for item and indicator animations; `0` disables motion |
 
 Closed pinned launchers keep the existing tooltip. Open windows hide that
-tooltip while a preview is scheduled or visible.
+tooltip while a preview is scheduled or visible. When workspace grouping is off,
+each preview includes its window’s workspace number styled like the native
+workspace switcher. The number stays visible for the current workspace too;
+workspace 10 displays `0`, following the switcher.
 
 ### Click actions
 

@@ -37,6 +37,7 @@ The plugin uses the permanent namespaced ID `atagulalan.omapanel`.
   padding, a background fill, and rounding around the chip row.
 - Hover can keep or replace the active style on the focused window.
 - Hovering a grouped icon shows clickable live thumbnails for its windows.
+  Without workspace grouping, each preview shows a native-style workspace number.
   Menus and settings suppress previews.
 - Pinned applications can be reordered from the settings panel.
 - Active-window indicators support `Underline`, `Top`, `Dot`, and `None`.

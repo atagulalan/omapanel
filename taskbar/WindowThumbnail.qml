@@ -9,7 +9,11 @@ Item {
     required property var window
     property bool live: false
     width: Style.space(taskbar.previewWidth)
-    height: thumbnailHeight + Style.space(28)
+    height: thumbnailHeight + footer.height
+    readonly property int workspaceId: {
+        var revision = taskbar.hyprlandRevision;
+        return taskbar.windowWorkspaceId(window);
+    }
     readonly property int thumbnailHeight: {
         var fallback = Style.space(taskbar.previewHeight);
         var size = taskbar.windowPixelSize(window);
@@ -56,17 +60,39 @@ Item {
             layer.smooth: true
         }
     }
-    Text {
+    Item {
+        id: footer
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        text: thumbnail.window ? taskbar.windowTitle(thumbnail.window) || taskbar.windowLabel(thumbnail.window) : ""
-        textFormat: Text.PlainText
-        color: Color.foreground
-        font.family: Style.font.family
-        font.pixelSize: Style.font.caption
-        elide: Text.ElideRight
-        horizontalAlignment: Text.AlignHCenter
+        height: Math.max(Style.space(28), workspaceNumber.visible ? workspaceNumber.height : 0)
+        WidgetButton {
+            id: workspaceNumber
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            visible: !taskbar.groupRunningByWorkspace && !!thumbnail.window
+            bar: taskbar.bar
+            text: thumbnail.workspaceId === 10 ? "0" : String(thumbnail.workspaceId)
+            horizontalMargin: 6
+            verticalPadding: 6
+            fixedWidth: Style.space(20)
+            fixedHeight: taskbar.barSize
+            interactive: false
+            pressable: false
+        }
+        Text {
+            anchors.left: workspaceNumber.visible ? workspaceNumber.right : parent.left
+            anchors.leftMargin: workspaceNumber.visible ? Style.space(4) : 0
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            text: thumbnail.window ? taskbar.windowTitle(thumbnail.window) || taskbar.windowLabel(thumbnail.window) : ""
+            textFormat: Text.PlainText
+            color: Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+        }
     }
     MouseArea {
         id: mouse
