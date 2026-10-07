@@ -25,6 +25,7 @@ INLINE_FILES = [
     "taskbar/TaskbarChrome.qml",
     "taskbar/ContextMenu.qml",
     "taskbar/WindowPreview.qml",
+    "taskbar/WindowThumbnail.qml",
     "settings/fields/SettingToggle.qml",
     "settings/fields/SettingDropdown.qml",
     "settings/fields/SettingNumber.qml",

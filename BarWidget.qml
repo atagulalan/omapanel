@@ -18,6 +18,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import "AppIdentity.js" as Identity
+import "TaskGroups.js" as Groups
 import "TaskHelpers.js" as Helpers
 import "TaskMatch.js" as Match
 
@@ -30,6 +31,7 @@ BarWidget {
     readonly property var pinnedApps: parsePinnedApps(setting("pinnedApps", defaultPinnedApps))
     readonly property bool showRunning: boolSetting("showRunning", true)
     readonly property bool groupRunningByWorkspace: boolSetting("groupRunningByWorkspace", true)
+    readonly property bool groupRunningByApp: boolSetting("groupRunningByApp", false)
     readonly property bool showIcons: boolSetting("showIcons", true)
     readonly property bool invertIconColors: boolSetting("invertIconColors", false)
     readonly property bool showLabels: boolSetting("showLabels", true)
@@ -124,8 +126,12 @@ BarWidget {
     property Item previewAnchor: null
     property var previewToplevel: null
     property int previewHoverCount: 0
+    property bool previewPointerHovered: false
+    property string pendingPreviewGroupKey: ""
+    property string previewGroupKey: ""
+    readonly property var previewWindows: windowsForGroupKey(previewGroupKey)
     readonly property bool opened: contextMenuOpen || settingsPanelOpen
-    readonly property var contextWindows: windowsForDescriptor(contextApp, contextWindow)
+    readonly property var contextWindows: contextGroupKey ? windowsForGroupKey(contextGroupKey) : visibleDescriptorWindows(contextApp, contextWindow)
     readonly property var contextEntry: desktopEntryFor(contextApp, contextWindow)
     readonly property var contextActions: {
         var actions = contextEntry && contextEntry.actions ? contextEntry.actions : [];
@@ -136,24 +142,25 @@ BarWidget {
     readonly property int contextPinnedIndex: pinnedIndex(contextApp, contextWindow)
     readonly property bool contextIsPinned: contextPinnedIndex >= 0
     readonly property bool contextCanLaunch: !!(contextEntry || (contextApp && contextApp.launch))
+    property string clickCursorKey: ""
+    property string clickCursorAddress: ""
+    property double clickCursorDeadline: 0
+    property string contextGroupKey: ""
     readonly property var pinnedItems: {
         var revision = hyprlandRevision;
         var result = [];
         for (var i = 0; i < pinnedApps.length; i++) {
             var app = pinnedApps[i];
-            var windows = windowsForDescriptor(app, null).filter(function(window) { return !isExcludedWindow(window); });
-            if (windows.length === 0) {
-                result.push({
-                    "app": app,
-                    "window": null
-                });
-                continue;
-            }
-            for (var j = 0; j < windows.length; j++) {
-                result.push({
-                    "app": app,
-                    "window": windows[j]
-                });
+            var windows = visibleDescriptorWindows(app, null);
+            var key = "pin:" + app.desktopId + ":" + app.match;
+            if (windows.length === 0 || groupRunningByApp) {
+                result.push({app: app, window: windows[0] || null,
+                    key: key, windows: windows,
+                    launchOnly: false, hasWindows: windowsForDescriptor(app, null).length > 0});
+            } else {
+                for (var j = 0; j < windows.length; j++)
+                    result.push({app: app, window: windows[j], key: key + ":" + normalizedAddress(windows[j]),
+                        windows: [windows[j]], launchOnly: false, hasWindows: true});
             }
         }
         return result;
@@ -188,7 +195,50 @@ BarWidget {
                 return entry.window;
             });
 
-        return result.slice(0, maxRunningWindows);
+        return result;
+    }
+
+    function appIdentity(window) {
+        var entry = windowDesktopEntry(window);
+        return entry && entry.id ? normalizeDesktopId(entry.id) : windowClass(window).toLowerCase();
+    }
+
+    function pinForWindow(window) {
+        for (var i = 0; i < pinnedApps.length; i++)
+            if (appMatchesWindow(pinnedApps[i], window)) return pinnedApps[i];
+        return null;
+    }
+
+    readonly property var runningGroups: Groups.build(runningWindows, groupRunningByApp,
+        groupRunningByWorkspace, appIdentity, windowWorkspaceId,
+        function(window) { return descriptorFor(pinForWindow(window), window); }).slice(0, maxRunningWindows)
+
+    function windowsForGroupKey(key) {
+        var groups = pinnedItems.concat(runningGroups);
+        for (var i = 0; i < groups.length; i++)
+            if (groups[i].key === key) return groups[i].windows;
+        return [];
+    }
+
+    function focusChipGroup(chip) {
+        var windows = chip.windowGroup;
+        if (!windows.length || chip.launchOnly) {
+            launchNewWindow(chip.app, null);
+            return;
+        }
+        var cursor = Date.now() <= clickCursorDeadline && clickCursorKey === chip.groupKey
+            ? windows.map(normalizedAddress).indexOf(clickCursorAddress) : -1;
+        var index = Groups.nextIndex(windows.length, indexOfToplevel(windows, activeWindow), cursor);
+        clickCursorKey = chip.groupKey;
+        clickCursorAddress = normalizedAddress(windows[index]);
+        clickCursorDeadline = Date.now() + 750;
+        activateOrLaunch(chip.app, windows[index]);
+    }
+
+    function visibleDescriptorWindows(app, window) {
+        return windowsForDescriptor(app, window).filter(function(candidate) {
+            return !isExcludedWindow(candidate);
+        });
     }
 
     function boolSetting(key, fallback) {
@@ -555,7 +605,9 @@ BarWidget {
         return -1;
     }
 
-    function wheelGroup(app, toplevel, pinned) {
+    function wheelGroup(app, toplevel, pinned, chip) {
+        if (chip && (groupRunningByApp || chip.launchOnly))
+            return {key: chip.groupKey, windows: chip.windowGroup};
         if (!toplevel)
             return {
             "key": "",
@@ -591,8 +643,8 @@ BarWidget {
         groupWheelCursorDeadline = 0;
     }
 
-    function cycleWindowGroup(app, toplevel, pinned, delta) {
-        var group = wheelGroup(app, toplevel, pinned);
+    function cycleWindowGroup(app, toplevel, pinned, delta, chip) {
+        var group = wheelGroup(app, toplevel, pinned, chip);
         if (group.windows.length === 0) {
             resetGroupWheel();
             return false;
@@ -744,13 +796,14 @@ BarWidget {
         }
         close();
         if (action === "Focus or Launch") {
-            activateOrLaunch(app, toplevel);
+            if (anchor && anchor.windowGroup !== undefined) focusChipGroup(anchor);
+            else activateOrLaunch(app, toplevel);
         } else if (action === "New Window") {
             launchNewWindow(app, toplevel);
         } else if (action === "Close Window") {
             closeWindow(toplevel);
         } else if (action === "Close All Windows") {
-            var targets = windowsForDescriptor(app, toplevel);
+            var targets = anchor && anchor.windowGroup ? anchor.windowGroup : visibleDescriptorWindows(app, toplevel);
             for (var i = 0; i < targets.length; i++) closeWindow(targets[i])
         }
     }
@@ -765,6 +818,7 @@ BarWidget {
         contextAnchor = anchor;
         contextApp = descriptorFor(app, toplevel);
         contextWindow = toplevel;
+        contextGroupKey = anchor && anchor.windowGroup && anchor.windowGroup.length ? anchor.groupKey : "";
         contextMenuOpen = true;
     }
 
@@ -778,6 +832,7 @@ BarWidget {
         previewTimer.stop();
         pendingPreviewAnchor = null;
         pendingPreviewToplevel = null;
+        pendingPreviewGroupKey = "";
     }
 
     function commitPreview(anchor, toplevel) {
@@ -785,8 +840,10 @@ BarWidget {
             cancelPreview(null);
             return;
         }
+        var key = pendingPreviewGroupKey;
         clearPendingPreview();
         previewHideTimer.stop();
+        previewGroupKey = key;
         previewAnchor = anchor;
         previewToplevel = toplevel;
     }
@@ -798,6 +855,7 @@ BarWidget {
         }
         pendingPreviewAnchor = anchor;
         pendingPreviewToplevel = toplevel;
+        pendingPreviewGroupKey = anchor.groupKey;
         if (previewDelay <= 0 || previewToplevel !== null || previewHideTimer.running)
             commitPreview(anchor, toplevel);
         else
@@ -811,6 +869,7 @@ BarWidget {
 
         if (!toplevel || previewToplevel === toplevel) {
             previewToplevel = null;
+            previewGroupKey = "";
             previewAnchor = null;
         }
     }
@@ -835,7 +894,7 @@ BarWidget {
         if (chip.bar)
             chip.bar.hideTooltip(chip);
         previewHoverCount = Math.max(0, previewHoverCount - 1);
-        if (previewHoverCount === 0)
+        if (previewHoverCount === 0 && !previewPointerHovered)
             previewHideTimer.restart();
     }
 
@@ -843,15 +902,8 @@ BarWidget {
         if (!toplevel)
             return false;
 
-        if (runningWindows.indexOf(toplevel) >= 0)
-            return true;
-
-        for (var i = 0; i < pinnedItems.length; i++) {
-            if (pinnedItems[i].window === toplevel)
-                return true;
-
-        }
-        return false;
+        var values = Hyprland.toplevels.values || [];
+        return values.indexOf(toplevel) >= 0 && !isExcludedWindow(toplevel);
     }
 
     function openSettingsPanel() {
@@ -860,6 +912,11 @@ BarWidget {
         Qt.callLater(function() {
             settingsPanelOpen = true;
         });
+    }
+
+    function holdPreview() { previewHideTimer.stop(); }
+    function releasePreview() {
+        if (previewHoverCount === 0) previewHideTimer.restart();
     }
 
     function persistSettings(nextSettings) {
@@ -996,7 +1053,9 @@ BarWidget {
         id: previewHideTimer
 
         interval: 160
-        onTriggered: taskbar.cancelPreview(null)
+        onTriggered: {
+            if (!taskbar.previewPointerHovered && taskbar.previewHoverCount === 0) taskbar.cancelPreview(null);
+        }
     }
 
     ContextMenu {
@@ -1147,6 +1206,11 @@ BarWidget {
         required property var appWindow
         required property bool pinned
 
+        property var windowGroup: appWindow ? [appWindow] : []
+        property string groupKey: ""
+        property bool launchOnly: false
+        property bool hasWindows: appWindow !== null
+
         property string displayLabel: ""
         property string iconName: ""
         property bool pointerHovered: false
@@ -1177,9 +1241,9 @@ BarWidget {
             if (!taskbar || !appWindow)
                 return false;
 
-            return taskbar.activeWindow === appWindow;
+            return taskbar.indexOfToplevel(windowGroup, taskbar.activeWindow) >= 0;
         }
-        readonly property bool isClosedPinned: pinned && appWindow === null
+        readonly property bool isClosedPinned: pinned && !hasWindows
         readonly property bool effectiveShowIcons: {
             if (!taskbar)
                 return true;
@@ -1251,7 +1315,7 @@ BarWidget {
         }
 
         function handleBarWheel(delta) {
-            return ready ? taskbar.cycleWindowGroup(app, appWindow, pinned, delta) : false;
+            return ready ? taskbar.cycleWindowGroup(app, appWindow, pinned, delta, chip) : false;
         }
 
         function setPointerHovered(hovered) {
@@ -1276,7 +1340,7 @@ BarWidget {
             var verticalPad = Style.space((ready ? taskbar.itemVerticalPadding : 12) * 2);
             return Math.min(Math.max(1, barHeight - padTop - padBottom), contentHeight + verticalPad);
         }
-        tooltipText: (ready ? taskbar.asPlainUiText(resolvedLabel) : resolvedLabel) + (pinned && appWindow === null ? "\nClick to open" : "\nClick to focus")
+        tooltipText: (ready ? taskbar.asPlainUiText(resolvedLabel) : resolvedLabel) + (launchOnly || (pinned && appWindow === null) ? "\nClick to open" : (windowGroup.length > 1 ? "\nClick to cycle windows" : "\nClick to focus"))
 
 
         TextMetrics {
@@ -1432,81 +1496,79 @@ BarWidget {
 
     component TaskbarChrome: Item {
         id: chrome
-
         anchors.centerIn: parent
-        implicitWidth: content.implicitWidth + (taskbar ? taskbar.barPadHorizontal : 0) * 2
-        implicitHeight: taskbar ? taskbar.panelHeight : content.implicitHeight
+        implicitWidth: content.implicitWidth + taskbar.barPadHorizontal * 2
+        implicitHeight: taskbar.panelHeight
         width: implicitWidth
         height: implicitHeight
-        readonly property bool trimEdges: !!(taskbar && taskbar.trimEdgeItemGaps)
-        readonly property int pinnedCount: taskbar && taskbar.pinnedItems ? taskbar.pinnedItems.length : 0
-        readonly property int runningCount: taskbar && taskbar.runningWindows ? taskbar.runningWindows.length : 0
+        readonly property bool trimEdges: taskbar.trimEdgeItemGaps
+        readonly property int pinnedCount: taskbar.pinnedItems.length
+        readonly property int runningCount: taskbar.runningGroups.length
 
         Rectangle {
             anchors.fill: parent
-            radius: taskbar ? taskbar.barCornerRadius : 0
-            color: taskbar ? taskbar.barBackgroundColor : "transparent"
-            visible: taskbar && taskbar.barBackgroundEnabled
+            radius: taskbar.barCornerRadius
+            color: taskbar.barBackgroundColor
+            visible: taskbar.barBackgroundEnabled
         }
 
         Row {
             id: content
-
-            x: taskbar ? taskbar.barPadHorizontal : 0
-            y: taskbar ? taskbar.barPadTop : 0
+            x: taskbar.barPadHorizontal
+            y: taskbar.barPadTop
             spacing: 0
-
             TaskbarSeparator {
-                visible: !!(taskbar && taskbar.leadingSeparator && taskbar.pinnedApps && taskbar.pinnedApps.length > 0)
+                visible: taskbar.leadingSeparator && chrome.pinnedCount > 0
             }
-
             Repeater {
-                model: taskbar ? taskbar.pinnedItems : []
-
-                AppChip {
+                model: taskbar.pinnedItems.length
+                Item {
+                    id: pinDelegate
                     required property int index
-                    required property var modelData
-
-                    app: modelData && modelData.app ? modelData.app : null
-                    appWindow: modelData ? modelData.window : null
-                    pinned: true
-                    includeLeadingHitPadding: !chrome.trimEdges || index > 0
-                    includeTrailingHitPadding: !chrome.trimEdges || index < chrome.pinnedCount - 1 || chrome.runningCount > 0
-                }
-
-            }
-
-            TaskbarSeparator {
-                visible: !!(taskbar && taskbar.sectionSeparator && taskbar.pinnedApps && taskbar.pinnedApps.length > 0 && taskbar.runningWindows && taskbar.runningWindows.length > 0)
-            }
-
-            Repeater {
-                model: taskbar ? taskbar.runningWindows : []
-
-                Row {
-                    required property int index
-                    required property var modelData
-
-                    spacing: 0
-
-                    TaskbarSeparator {
-                        visible: !!(taskbar && taskbar.startsWorkspaceGroup(parent.index, parent.modelData))
-                    }
-
+                    readonly property var entry: taskbar.pinnedItems[index]
+                    implicitWidth: pinChip.width
+                    implicitHeight: pinChip.height
                     AppChip {
-                        app: null
-                        appWindow: parent.modelData
-                        pinned: false
-                        includeLeadingHitPadding: !chrome.trimEdges || parent.index > 0 || chrome.pinnedCount > 0
-                        includeTrailingHitPadding: !chrome.trimEdges || parent.index < chrome.runningCount - 1
+                        id: pinChip
+                        app: pinDelegate.entry.app
+                        appWindow: pinDelegate.entry.window
+                        windowGroup: pinDelegate.entry.windows
+                        groupKey: pinDelegate.entry.key
+                        launchOnly: pinDelegate.entry.launchOnly
+                        hasWindows: pinDelegate.entry.hasWindows
+                        pinned: true
+                        includeLeadingHitPadding: !chrome.trimEdges || pinDelegate.index > 0
+                        includeTrailingHitPadding: !chrome.trimEdges || pinDelegate.index < chrome.pinnedCount - 1 || chrome.runningCount > 0
                     }
-
                 }
-
             }
-
+            TaskbarSeparator {
+                visible: taskbar.sectionSeparator && chrome.pinnedCount > 0 && chrome.runningCount > 0
+            }
+            Repeater {
+                model: taskbar.runningGroups.length
+                Row {
+                    id: runningDelegate
+                    required property int index
+                    readonly property var entry: taskbar.runningGroups[index]
+                    spacing: 0
+                    TaskbarSeparator {
+                        visible: taskbar.groupRunningByWorkspace && runningDelegate.index > 0
+                            && runningDelegate.entry.workspace !== taskbar.runningGroups[runningDelegate.index - 1].workspace
+                    }
+                    AppChip {
+                        app: runningDelegate.entry.app
+                        appWindow: runningDelegate.entry.window
+                        windowGroup: runningDelegate.entry.windows
+                        groupKey: runningDelegate.entry.key
+                        hasWindows: true
+                        pinned: false
+                        includeLeadingHitPadding: !chrome.trimEdges || runningDelegate.index > 0 || chrome.pinnedCount > 0
+                        includeTrailingHitPadding: !chrome.trimEdges || runningDelegate.index < chrome.runningCount - 1
+                    }
+                }
+            }
         }
-
     }
 
     component ContextMenu: PopupCard {
@@ -1628,14 +1690,22 @@ BarWidget {
                 Repeater {
                     model: taskbar && taskbar.contextWindows ? taskbar.contextWindows : []
 
-                    MenuRow {
-                        required property var modelData
-
-                        text: taskbar.windowTitle(modelData) || taskbar.windowLabel(modelData)
-                        iconText: taskbar.activeWindow === modelData ? "\uf111" : ""
-                        onTriggered: {
-                            taskbar.close();
-                            taskbar.activateOrLaunch(null, modelData);
+                    Item {
+                        id: contextWindowRow
+                        required property int index
+                        width: parent.width
+                        implicitHeight: windowRow.implicitHeight
+                        readonly property var window: taskbar.contextWindows[index] || null
+                        MenuRow {
+                            id: windowRow
+                            width: parent.width
+                            text: taskbar.windowTitle(contextWindowRow.window) || taskbar.windowLabel(contextWindowRow.window)
+                            iconText: taskbar.sameToplevel(taskbar.activeWindow, contextWindowRow.window) ? "\uf111" : ""
+                            onTriggered: {
+                                var target = contextWindowRow.window;
+                                taskbar.close();
+                                taskbar.activateOrLaunch(null, target);
+                            }
                         }
                     }
 
@@ -1660,12 +1730,19 @@ BarWidget {
                 Repeater {
                     model: taskbar && taskbar.contextActions ? taskbar.contextActions : []
 
-                    MenuRow {
-                        required property var modelData
-
-                        text: taskbar.asPlainUiText(String(modelData.name || modelData.id || "Application Action"))
-                        iconText: "\uf144"
-                        onTriggered: taskbar.executeDesktopAction(modelData)
+                    Item {
+                        id: contextActionRow
+                        required property int index
+                        width: parent.width
+                        implicitHeight: actionRow.implicitHeight
+                        readonly property var action: taskbar.contextActions[index] || null
+                        MenuRow {
+                            id: actionRow
+                            width: parent.width
+                            text: taskbar.asPlainUiText(String(contextActionRow.action ? contextActionRow.action.name || contextActionRow.action.id : ""))
+                            iconText: "\uf144"
+                            onTriggered: taskbar.executeDesktopAction(contextActionRow.action)
+                        }
                     }
 
                 }
@@ -1738,119 +1815,124 @@ BarWidget {
 
     component WindowPreview: PopupCard {
         id: previewCard
-
-        anchorItem: {
-            if (!taskbar)
-                return null;
-
-            return taskbar.previewAnchor || taskbar;
-        }
+        anchorItem: taskbar.previewAnchor || taskbar
         owner: taskbar
-        bar: taskbar ? taskbar.bar : null
-        open: !!(taskbar && !taskbar.opened && taskbar.showWindowPreviews && taskbar.previewToplevel !== null && taskbar.previewAnchor !== null)
+        bar: taskbar.bar
+        open: !taskbar.opened && taskbar.showWindowPreviews && taskbar.previewWindows.length > 0 && taskbar.previewAnchor !== null
         triggerMode: "hover"
-        onAnchorItemChanged: {
-            if (!previewCard.open)
-                return ;
-
-            Qt.callLater(function() {
-                if (previewCard.open)
-                    previewCard.anchor.updateAnchor();
-            });
-        }
         padding: Style.space(8)
-        readonly property int thumbnailHeight: {
-            var fallback = Style.space(taskbar ? taskbar.previewHeight : 220);
-            if (!taskbar || !taskbar.previewAutoHeight)
-                return fallback;
-
-            var size = taskbar.windowPixelSize(taskbar.previewToplevel);
-            if (!size || !(size.width > 0 && size.height > 0))
-                return fallback;
-
-            var scaled = Math.round(Style.space(taskbar.previewWidth) * size.height / size.width);
-            return Math.max(Style.space(100), Math.min(Style.space(480), scaled));
+        contentWidth: fittedContentWidth(Style.space(taskbar.previewWidth) * taskbar.previewWindows.length
+            + Style.space(8) * Math.max(0, taskbar.previewWindows.length - 1))
+        contentHeight: fittedContentHeight(tiles.implicitHeight + Style.space(12), Style.space(540))
+        onContainsMouseChanged: {
+            taskbar.previewPointerHovered = containsMouse;
+            if (containsMouse) taskbar.holdPreview();
+            else taskbar.releasePreview();
         }
-        readonly property real qualityScale: {
-            var quality = taskbar ? taskbar.previewQuality : 100;
-            return Math.max(0.1, Math.min(1, quality / 100));
-        }
-        contentWidth: previewCard.fittedContentWidth(Style.space(taskbar ? taskbar.previewWidth : 320))
-        contentHeight: previewCard.fittedContentHeight(previewCard.thumbnailHeight + Style.space(28), Style.space(480))
-
-        Item {
+        Flickable {
             anchors.fill: parent
-
-            Item {
-                id: previewFrame
-
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: previewTitle.top
-                anchors.bottomMargin: Style.space(7)
-                clip: true
-
-                Text {
-                    anchors.centerIn: parent
-                    visible: !previewView.hasContent
-                    text: taskbar.previewToplevel ? String(taskbar.windowLabel(taskbar.previewToplevel) || "?").charAt(0).toUpperCase() : ""
-                    textFormat: Text.PlainText
-                    color: taskbar.bar ? taskbar.bar.barForeground : Color.foreground
-                    font.family: taskbar.bar ? taskbar.bar.fontFamily : Style.font.family
-                    font.pixelSize: Style.font.title
-                    opacity: 0.5
-                }
-
-                ScreencopyView {
-                    id: previewView
-
-                    captureSource: taskbar.previewToplevel ? taskbar.previewToplevel.wayland : null
-                    live: previewCard.open
-                    paintCursor: false
-                    visible: hasContent && sourceSize.width > 0 && sourceSize.height > 0
-                    width: previewView.captureWidth
-                    height: previewView.captureHeight
-                    readonly property real fitScale: {
-                        if (sourceSize.width <= 0 || sourceSize.height <= 0)
-                            return 1;
-
-                        return Math.min(previewFrame.width / sourceSize.width, previewFrame.height / sourceSize.height);
+            contentWidth: tiles.implicitWidth
+            contentHeight: tiles.implicitHeight
+            clip: true
+            flickableDirection: Flickable.HorizontalFlick
+            boundsBehavior: Flickable.StopAtBounds
+            Row {
+                id: tiles
+                spacing: Style.space(8)
+                Repeater {
+                    model: taskbar.previewWindows.length
+                    Item {
+                        id: tileDelegate
+                        required property int index
+                        implicitWidth: tile.width
+                        implicitHeight: tile.height
+                        WindowThumbnail {
+                            id: tile
+                            window: taskbar.previewWindows[tileDelegate.index] || null
+                            live: previewCard.open
+                        }
                     }
-                    readonly property int captureWidth: Math.max(Math.round(sourceSize.width * fitScale), Math.round(sourceSize.width * previewCard.qualityScale))
-                    readonly property int captureHeight: Math.max(Math.round(sourceSize.height * fitScale), Math.round(sourceSize.height * previewCard.qualityScale))
-                    readonly property real drawScale: captureWidth > 0 ? Math.min(previewFrame.width / captureWidth, previewFrame.height / captureHeight) : 1
-                    x: (previewFrame.width - captureWidth * drawScale) / 2
-                    y: (previewFrame.height - captureHeight * drawScale) / 2
-                    transformOrigin: Item.TopLeft
-                    transform: Scale {
-                        xScale: previewView.drawScale
-                        yScale: previewView.drawScale
-                    }
-                    layer.enabled: visible
-                    layer.mipmap: true
-                    layer.smooth: true
                 }
-
             }
-
-            Text {
-                id: previewTitle
-
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                text: taskbar.previewToplevel ? taskbar.asPlainUiText(taskbar.windowTitle(taskbar.previewToplevel) || taskbar.windowLabel(taskbar.previewToplevel)) : ""
-                textFormat: Text.PlainText
-                color: taskbar.bar ? taskbar.bar.barForeground : Color.foreground
-                font.family: taskbar.bar ? taskbar.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideRight
-                horizontalAlignment: Text.AlignHCenter
-            }
-
+            QQC.ScrollBar.horizontal: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
         }
+    }
 
+    component WindowThumbnail: Item {
+        id: thumbnail
+        required property var window
+        property bool live: false
+        width: Style.space(taskbar.previewWidth)
+        height: thumbnailHeight + Style.space(28)
+        readonly property int thumbnailHeight: {
+            var fallback = Style.space(taskbar.previewHeight);
+            var size = taskbar.windowPixelSize(window);
+            if (!taskbar.previewAutoHeight || !(size.width > 0 && size.height > 0)) return fallback;
+            return Math.max(Style.space(100), Math.min(Style.space(480), Math.round(width * size.height / size.width)));
+        }
+        Rectangle {
+            anchors.fill: parent
+            color: mouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
+            radius: Style.cornerRadius
+        }
+        Item {
+            id: frame
+            width: parent.width
+            height: thumbnail.thumbnailHeight
+            clip: true
+            Text {
+                anchors.centerIn: parent
+                visible: !view.hasContent
+                text: thumbnail.window ? taskbar.windowLabel(thumbnail.window) : "Window closed"
+                textFormat: Text.PlainText
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+            }
+            ScreencopyView {
+                id: view
+                captureSource: thumbnail.window ? thumbnail.window.wayland : null
+                live: thumbnail.live
+                paintCursor: false
+                visible: hasContent && sourceSize.width > 0 && sourceSize.height > 0
+                readonly property real fitScale: sourceSize.width > 0 && sourceSize.height > 0
+                    ? Math.min(frame.width / sourceSize.width, frame.height / sourceSize.height) : 1
+                readonly property real captureScale: Math.max(fitScale, taskbar.previewQuality / 100)
+                width: Math.round(sourceSize.width * captureScale)
+                height: Math.round(sourceSize.height * captureScale)
+                readonly property real drawScale: width > 0 ? Math.min(frame.width / width, frame.height / height) : 1
+                x: (frame.width - width * drawScale) / 2
+                y: (frame.height - height * drawScale) / 2
+                transformOrigin: Item.TopLeft
+                transform: Scale { xScale: view.drawScale; yScale: view.drawScale }
+                layer.enabled: visible
+                layer.mipmap: true
+                layer.smooth: true
+            }
+        }
+        Text {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            text: thumbnail.window ? taskbar.windowTitle(thumbnail.window) || taskbar.windowLabel(thumbnail.window) : ""
+            textFormat: Text.PlainText
+            color: Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+        }
+        MouseArea {
+            id: mouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                var target = thumbnail.window;
+                taskbar.cancelPreview(null);
+                if (target) taskbar.activateOrLaunch(null, target);
+            }
+        }
     }
 
     component SettingToggle: Toggle {
@@ -2135,14 +2217,21 @@ BarWidget {
             host: panel
             settingKey: "groupRunningByWorkspace"
             settingLabel: "Group by workspace"
-            settingDescription: "Sort dynamic windows and separate workspace groups."
+            settingDescription: "Separate launch-only pins from running windows sorted by workspace."
             fallbackValue: true
+        }
+
+        SettingToggle {
+            host: panel
+            settingKey: "groupRunningByApp"
+            settingLabel: "Group by app"
+            settingDescription: "One icon per app; click to cycle windows. Combine with workspace grouping."
         }
 
         SettingNumber {
             host: panel
             settingKey: "maxRunningWindows"
-            settingLabel: "Max windows"
+            settingLabel: "Max running icons"
             fallbackValue: 12
             minimumValue: 1
             maximumValue: 30

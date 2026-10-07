@@ -21,14 +21,21 @@
         host: panel
         settingKey: "groupRunningByWorkspace"
         settingLabel: "Group by workspace"
-        settingDescription: "Sort dynamic windows and separate workspace groups."
+        settingDescription: "Separate launch-only pins from running windows sorted by workspace."
         fallbackValue: true
+    }
+
+    SettingToggle {
+        host: panel
+        settingKey: "groupRunningByApp"
+        settingLabel: "Group by app"
+        settingDescription: "One icon per app; click to cycle windows. Combine with workspace grouping."
     }
 
     SettingNumber {
         host: panel
         settingKey: "maxRunningWindows"
-        settingLabel: "Max windows"
+        settingLabel: "Max running icons"
         fallbackValue: 12
         minimumValue: 1
         maximumValue: 30

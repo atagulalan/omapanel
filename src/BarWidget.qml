@@ -7,6 +7,7 @@ import qs.Ui
 import "../TaskHelpers.js" as Helpers
 import "../TaskMatch.js" as Match
 import "../AppIdentity.js" as Identity
+import "../TaskGroups.js" as Groups
 
 BarWidget {
     id: taskbar
@@ -15,6 +16,7 @@ BarWidget {
 
     // @include settings.inc
     // @include state.inc
+    // @include groups.inc
     // @include helpers.inc
     // @include windows.inc
     // @include exclusions.inc

@@ -27,7 +27,9 @@
         id: previewHideTimer
 
         interval: 160
-        onTriggered: taskbar.cancelPreview(null)
+        onTriggered: {
+            if (!taskbar.previewPointerHovered && taskbar.previewHoverCount === 0) taskbar.cancelPreview(null);
+        }
     }
 
     ContextMenu {

@@ -98,13 +98,14 @@
         }
         close();
         if (action === "Focus or Launch") {
-            activateOrLaunch(app, toplevel);
+            if (anchor && anchor.windowGroup !== undefined) focusChipGroup(anchor);
+            else activateOrLaunch(app, toplevel);
         } else if (action === "New Window") {
             launchNewWindow(app, toplevel);
         } else if (action === "Close Window") {
             closeWindow(toplevel);
         } else if (action === "Close All Windows") {
-            var targets = windowsForDescriptor(app, toplevel);
+            var targets = anchor && anchor.windowGroup ? anchor.windowGroup : visibleDescriptorWindows(app, toplevel);
             for (var i = 0; i < targets.length; i++) closeWindow(targets[i])
         }
     }

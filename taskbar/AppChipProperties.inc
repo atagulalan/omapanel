@@ -28,9 +28,9 @@
         if (!taskbar || !appWindow)
             return false;
 
-        return taskbar.activeWindow === appWindow;
+        return taskbar.indexOfToplevel(windowGroup, taskbar.activeWindow) >= 0;
     }
-    readonly property bool isClosedPinned: pinned && appWindow === null
+    readonly property bool isClosedPinned: pinned && !hasWindows
     readonly property bool effectiveShowIcons: {
         if (!taskbar)
             return true;
@@ -102,7 +102,7 @@
     }
 
     function handleBarWheel(delta) {
-        return ready ? taskbar.cycleWindowGroup(app, appWindow, pinned, delta) : false;
+        return ready ? taskbar.cycleWindowGroup(app, appWindow, pinned, delta, chip) : false;
     }
 
     function setPointerHovered(hovered) {
@@ -127,4 +127,4 @@
         var verticalPad = Style.space((ready ? taskbar.itemVerticalPadding : 12) * 2);
         return Math.min(Math.max(1, barHeight - padTop - padBottom), contentHeight + verticalPad);
     }
-    tooltipText: (ready ? taskbar.asPlainUiText(resolvedLabel) : resolvedLabel) + (pinned && appWindow === null ? "\nClick to open" : "\nClick to focus")
+    tooltipText: (ready ? taskbar.asPlainUiText(resolvedLabel) : resolvedLabel) + (launchOnly || (pinned && appWindow === null) ? "\nClick to open" : (windowGroup.length > 1 ? "\nClick to cycle windows" : "\nClick to focus"))

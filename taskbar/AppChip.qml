@@ -10,6 +10,11 @@ WidgetButton {
     required property var appWindow
     required property bool pinned
 
+    property var windowGroup: appWindow ? [appWindow] : []
+    property string groupKey: ""
+    property bool launchOnly: false
+    property bool hasWindows: appWindow !== null
+
     // @include AppChipProperties.inc
 
     // @include AppChipVisuals.inc

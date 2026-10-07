@@ -87,7 +87,8 @@
       "previewWidth": 320,
       "previewHeight": 220,
       "previewAutoHeight": false,
-      "previewQuality": 100
+      "previewQuality": 100,
+      "groupRunningByApp": false
     },
     "schema": [
       {
@@ -110,6 +111,13 @@
         "label": "Group windows by workspace",
         "description": "Sort running windows by workspace and draw a separator between workspace groups.",
         "defaultValue": true
+      },
+      {
+        "key": "groupRunningByApp",
+        "type": "bool",
+        "label": "Group by app",
+        "description": "One icon per application, or per application per workspace; click to cycle windows.",
+        "defaultValue": false
       },
       {
         "key": "showIcons",
@@ -279,7 +287,7 @@
         "key": "previewQuality",
         "type": "integer",
         "label": "Preview quality",
-        "description": "Thumbnail sharpness as a percentage of the preview size; range 10–100.",
+        "description": "Thumbnail sharpness as a percentage of the preview size; range 10\u2013100.",
         "min": 10,
         "max": 100,
         "step": 5,
@@ -636,7 +644,7 @@
       {
         "key": "maxRunningWindows",
         "type": "integer",
-        "label": "Maximum running windows",
+        "label": "Maximum running icons",
         "min": 1,
         "max": 30,
         "step": 1,

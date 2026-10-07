@@ -2,6 +2,7 @@
     readonly property var pinnedApps: parsePinnedApps(setting("pinnedApps", defaultPinnedApps))
     readonly property bool showRunning: boolSetting("showRunning", true)
     readonly property bool groupRunningByWorkspace: boolSetting("groupRunningByWorkspace", true)
+    readonly property bool groupRunningByApp: boolSetting("groupRunningByApp", false)
     readonly property bool showIcons: boolSetting("showIcons", true)
     readonly property bool invertIconColors: boolSetting("invertIconColors", false)
     readonly property bool showLabels: boolSetting("showLabels", true)
