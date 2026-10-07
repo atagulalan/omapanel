@@ -7,7 +7,7 @@
     property bool agentPromptReady: false
     property string agentPromptText: ""
     property string iconStatus: ""
-    readonly property bool iconWorkInProgress: iconProcess.running
+    readonly property bool iconWorkInProgress: iconProcess.running || iconRequirementProcess.running
         || ((stylizedIcons || iconPromptPending) && (iconScanDelay.running || iconRefreshPending || iconPromptPending))
     function iconApplications() {
         var entries = DesktopEntries.applications.values || [];
@@ -59,7 +59,7 @@
 
     function runIconScan() {
         if (iconProcess.running || (!stylizedIcons && !iconPromptPending)) return;
-        var command = ["python3", "-B", Qt.resolvedUrl("../scripts/stylized-icons.py").toString().replace(/^file:\/\//, ""), "--notify"];
+        var command = ["/bin/sh", Qt.resolvedUrl("../scripts/icon-action.sh").toString().replace(/^file:\/\//, ""), "generate", "--notify"];
         if (iconRefreshPending) command.push("--refresh");
         if (iconPromptPending) command.push("--prompt");
         iconRefreshPending = false;
@@ -78,16 +78,8 @@
         scheduleIconScan(true, true);
     }
 
-    function launchIconAgent() {
-        var prompt = agentPromptText;
-        close();
-        Quickshell.execDetached(["omarchy", "agent", "prompt", prompt]);
-    }
-
-    function copyIconPrompt() {
-        iconClipboard.command = ["wl-copy", "--", agentPromptText];
-        iconClipboard.running = true;
-    }
+    function launchIconAgent() { requestIconRequirement("agent"); }
+    function copyIconPrompt() { requestIconRequirement("clipboard"); }
 
     onStylizedIconsChanged: if (stylizedIcons) scheduleIconScan(true, false)
     onPinnedAppsChanged: if (stylizedIcons) scheduleIconScan(false, false)

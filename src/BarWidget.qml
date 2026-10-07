@@ -26,6 +26,7 @@ BarWidget {
     // @include groups.inc
     // @include icons.inc
     // @include icon-processes.inc
+    // @include icon-requirements.inc
     // @include workspaces.inc
     // @include helpers.inc
     // @include windows.inc

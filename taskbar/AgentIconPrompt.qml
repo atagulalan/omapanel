@@ -17,15 +17,28 @@ KeyboardPanel {
         anchors.fill: parent
         spacing: Style.space(12)
         Text {
+            id: heading
             text: "Generate monochrome icons"
             color: Color.popups.text
             font.family: Style.font.family
             font.pixelSize: Style.font.subtitle
             font.bold: true
         }
+        Text {
+            id: requirementStatus
+            width: parent.width
+            visible: taskbar.iconStatus !== ""
+            text: taskbar.iconStatus
+            textFormat: Text.PlainText
+            color: Color.popups.text
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+        }
         Flickable {
             width: parent.width
-            height: Math.max(80, parent.height - buttons.height - Style.space(55))
+            height: Math.max(80, parent.height - buttons.height - heading.height
+                - (requirementStatus.visible ? requirementStatus.height + parent.spacing : 0) - parent.spacing * 2)
             contentWidth: width
             contentHeight: promptText.implicitHeight
             clip: true

@@ -241,6 +241,20 @@ queued or running icon work, the robot button is replaced by a flat spinner
 of the same size. Hovering it shows **Generating stylized icons…**. The agent
 prompt opens after its scan finishes; closing settings cancels that popup.
 
+Every generation request checks Python 3 and ImageMagick; **Copy prompt** checks
+`wl-copy` separately. Missing tools show `omarchy pkg add python`,
+`omarchy pkg add imagemagick`, or `omarchy pkg add wl-clipboard`, as applicable.
+These packages are in Arch's official core/extra repositories; package guidance
+is withheld if the configured database resolves a required package elsewhere.
+Nothing is installed automatically.
+
+The robot checks the configured default agent and its executable before opening
+the prompt, and **Run default agent** checks again before launch. Missing setup
+points to **Omarchy → Setup → Default Agent** or `omarchy default agent <agent>`.
+Omarchy's agent setup may use mise rather than Arch packages. Codex and Claude
+also get sign-in checks. Other agents show a reminder to complete login/provider
+setup with `omarchy agent`; their authentication is not automatically verified.
+
 The optional generator requires Python 3 and ImageMagick. Script icons and the
 source-provenance index live in `$XDG_CACHE_HOME/omapanel/stylized-icons`
 (default `~/.cache/omapanel/stylized-icons`). Agent SVG/PNG overrides live in

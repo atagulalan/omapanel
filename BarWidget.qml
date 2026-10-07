@@ -317,7 +317,7 @@ BarWidget {
     property bool agentPromptReady: false
     property string agentPromptText: ""
     property string iconStatus: ""
-    readonly property bool iconWorkInProgress: iconProcess.running
+    readonly property bool iconWorkInProgress: iconProcess.running || iconRequirementProcess.running
         || ((stylizedIcons || iconPromptPending) && (iconScanDelay.running || iconRefreshPending || iconPromptPending))
     function iconApplications() {
         var entries = DesktopEntries.applications.values || [];
@@ -369,7 +369,7 @@ BarWidget {
 
     function runIconScan() {
         if (iconProcess.running || (!stylizedIcons && !iconPromptPending)) return;
-        var command = ["python3", "-B", Qt.resolvedUrl("scripts/stylized-icons.py").toString().replace(/^file:\/\//, ""), "--notify"];
+        var command = ["/bin/sh", Qt.resolvedUrl("scripts/icon-action.sh").toString().replace(/^file:\/\//, ""), "generate", "--notify"];
         if (iconRefreshPending) command.push("--refresh");
         if (iconPromptPending) command.push("--prompt");
         iconRefreshPending = false;
@@ -388,16 +388,8 @@ BarWidget {
         scheduleIconScan(true, true);
     }
 
-    function launchIconAgent() {
-        var prompt = agentPromptText;
-        close();
-        Quickshell.execDetached(["omarchy", "agent", "prompt", prompt]);
-    }
-
-    function copyIconPrompt() {
-        iconClipboard.command = ["wl-copy", "--", agentPromptText];
-        iconClipboard.running = true;
-    }
+    function launchIconAgent() { requestIconRequirement("agent"); }
+    function copyIconPrompt() { requestIconRequirement("clipboard"); }
 
     onStylizedIconsChanged: if (stylizedIcons) scheduleIconScan(true, false)
     onPinnedAppsChanged: if (stylizedIcons) scheduleIconScan(false, false)
@@ -429,7 +421,7 @@ BarWidget {
                         return;
                     }
                     taskbar.iconIndex = result;
-                    taskbar.iconStatus = result.errors.length ? result.errors.length + " icon(s) need attention" : "";
+                    if (!taskbar.agentPromptOpen || result.prompt !== undefined) taskbar.iconStatus = result.errors.length ? result.errors.length + " icon(s) need attention" : (result.agentNote || "");
                     if (result.prompt !== undefined) {
                         taskbar.agentPromptText = result.prompt;
                         taskbar.agentPromptReady = true;
@@ -463,6 +455,35 @@ BarWidget {
     Connections {
         target: Hyprland.toplevels
         function onValuesChanged() { taskbar.scheduleTuiScan(); if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
+    }
+
+    function requestIconRequirement(mode) {
+        if (iconRequirementProcess.running) return;
+        iconStatus = "";
+        iconRequirementProcess.mode = mode;
+        iconRequirementProcess.command = ["/bin/sh", Qt.resolvedUrl("scripts/icon-action.sh").toString().replace(/^file:\/\//, ""), mode];
+        iconRequirementProcess.running = true;
+    }
+    Process {
+        id: iconRequirementProcess
+        property string mode: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var result = JSON.parse(text);
+                    if (!result.ok) { taskbar.iconStatus = result.error || "Requirements are missing."; return; }
+                    if (iconRequirementProcess.mode === "clipboard") {
+                        iconClipboard.command = ["wl-copy", "--", taskbar.agentPromptText];
+                        iconClipboard.running = true;
+                    } else {
+                        if (result.note) { taskbar.iconStatus = result.note; }
+                        var prompt = taskbar.agentPromptText;
+                        taskbar.close();
+                        Quickshell.execDetached(["omarchy", "agent", "prompt", prompt]);
+                    }
+                } catch (error) { taskbar.iconStatus = "Could not check icon requirements. Try again."; }
+            }
+        }
     }
 
     readonly property bool integrateWorkspaces: boolSetting("integrateWorkspaces", false)
@@ -2331,15 +2352,28 @@ BarWidget {
             anchors.fill: parent
             spacing: Style.space(12)
             Text {
+                id: heading
                 text: "Generate monochrome icons"
                 color: Color.popups.text
                 font.family: Style.font.family
                 font.pixelSize: Style.font.subtitle
                 font.bold: true
             }
+            Text {
+                id: requirementStatus
+                width: parent.width
+                visible: taskbar.iconStatus !== ""
+                text: taskbar.iconStatus
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+            }
             Flickable {
                 width: parent.width
-                height: Math.max(80, parent.height - buttons.height - Style.space(55))
+                height: Math.max(80, parent.height - buttons.height - heading.height
+                    - (requirementStatus.visible ? requirementStatus.height + parent.spacing : 0) - parent.spacing * 2)
                 contentWidth: width
                 contentHeight: promptText.implicitHeight
                 clip: true

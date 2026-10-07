@@ -68,6 +68,10 @@ The plugin uses the permanent namespaced ID `atagulalan.omapanel`.
 - ImageMagick (`magick`) for optional stylized icons
 - `wl-copy` for copying the optional agent prompt
 
+Icon actions check their prerequisites each time and show Omarchy setup commands
+when something is missing. Generation tools use official core/extra packages;
+agent setup uses Omarchy’s default-agent workflow.
+
 OmaPanel is a horizontal bar widget. It intentionally hides itself on vertical
 bars.
 

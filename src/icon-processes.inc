@@ -25,7 +25,7 @@
                         return;
                     }
                     taskbar.iconIndex = result;
-                    taskbar.iconStatus = result.errors.length ? result.errors.length + " icon(s) need attention" : "";
+                    if (!taskbar.agentPromptOpen || result.prompt !== undefined) taskbar.iconStatus = result.errors.length ? result.errors.length + " icon(s) need attention" : (result.agentNote || "");
                     if (result.prompt !== undefined) {
                         taskbar.agentPromptText = result.prompt;
                         taskbar.agentPromptReady = true;
