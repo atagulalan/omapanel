@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs.Commons
@@ -13,10 +14,15 @@ BarWidget {
     id: taskbar
 
     moduleName: "atagulalan.omapanel"
+    Component.onCompleted: {
+        if (stylizedIcons) scheduleIconScan(true, false);
+    }
 
     // @include settings.inc
     // @include state.inc
     // @include groups.inc
+    // @include icons.inc
+    // @include icon-processes.inc
     // @include helpers.inc
     // @include windows.inc
     // @include exclusions.inc

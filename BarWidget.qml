@@ -14,6 +14,7 @@ import QtQuick.Controls as QQC
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
@@ -26,6 +27,9 @@ BarWidget {
     id: taskbar
 
     moduleName: "atagulalan.omapanel"
+    Component.onCompleted: {
+        if (stylizedIcons) scheduleIconScan(true, false);
+    }
 
     readonly property string defaultPinnedApps: '[{"label":"Zen","match":"^zen$","launch":"omarchy-launch-browser","icon":"zen-browser","desktopId":"zen"},{"label":"Cursor","match":"^cursor$","launch":"uwsm-app -- cursor","icon":"co.anysphere.cursor","desktopId":"cursor"}]'
     readonly property var pinnedApps: parsePinnedApps(setting("pinnedApps", defaultPinnedApps))
@@ -130,7 +134,7 @@ BarWidget {
     property string pendingPreviewGroupKey: ""
     property string previewGroupKey: ""
     readonly property var previewWindows: windowsForGroupKey(previewGroupKey)
-    readonly property bool opened: contextMenuOpen || settingsPanelOpen
+    readonly property bool opened: contextMenuOpen || settingsPanelOpen || agentPromptOpen
     readonly property var contextWindows: contextGroupKey ? windowsForGroupKey(contextGroupKey) : visibleDescriptorWindows(contextApp, contextWindow)
     readonly property var contextEntry: desktopEntryFor(contextApp, contextWindow)
     readonly property var contextActions: {
@@ -239,6 +243,146 @@ BarWidget {
         return windowsForDescriptor(app, window).filter(function(candidate) {
             return !isExcludedWindow(candidate);
         });
+    }
+
+    readonly property bool stylizedIcons: boolSetting("stylizedIcons", false)
+    property var iconIndex: ({entries: {}})
+    property bool iconRefreshPending: false
+    property bool iconPromptPending: false
+    property bool agentPromptOpen: false
+    property string agentPromptText: ""
+    property string iconStatus: ""
+    function iconApplications() {
+        var entries = DesktopEntries.applications.values || [];
+        var result = [], seen = {};
+        entries.forEach(function(entry) {
+            if (!entry || !entry.id) return;
+            var id = String(entry.id).replace(/\.desktop$/i, "");
+            seen[id] = true;
+            result.push({id: id, name: String(entry.name || id), icon: String(entry.icon || ""),
+                source: resolveIconSource(entry.icon)});
+        });
+        pinnedApps.forEach(function(app) {
+            var id = app.desktopId || app.icon;
+            if (!seen[id]) {
+                seen[id] = true;
+                result.push({id: id, name: app.label, icon: app.icon, source: resolveIconSource(app.icon)});
+            }
+        });
+        var values = Hyprland.toplevels.values || [];
+        values.forEach(function(window) {
+            var id = appIdentity(window);
+            if (!seen[id]) {
+                seen[id] = true;
+                result.push({id: id, name: windowLabel(window), icon: windowIcon(window), source: resolveIconSource(windowIcon(window))});
+            }
+        });
+        return result;
+    }
+
+    function styledIconSource(icon, app, window) {
+        if (!stylizedIcons) return resolveIconSource(icon);
+        var entry = desktopEntryFor(app, window);
+        var id = entry ? String(entry.id).replace(/\.desktop$/i, "")
+            : (app && app.desktopId ? app.desktopId : (window ? appIdentity(window) : icon));
+        var cached = iconIndex.entries ? iconIndex.entries[id] : null;
+        if (!cached || !cached.selected) return resolveIconSource(icon);
+        return cached.selected + "?v=" + cached.fingerprint + (cached.agentSignature || "");
+    }
+
+    function iconIsStyled(app, window, icon) {
+        return stylizedIcons && styledIconSource(icon, app, window) !== resolveIconSource(icon);
+    }
+
+    function scheduleIconScan(refresh, prompt) {
+        iconRefreshPending = iconRefreshPending || refresh;
+        iconPromptPending = iconPromptPending || prompt;
+        iconScanDelay.restart();
+    }
+
+    function runIconScan() {
+        if (iconProcess.running || (!stylizedIcons && !iconPromptPending)) return;
+        var command = ["python3", "-B", Qt.resolvedUrl("scripts/stylized-icons.py").toString().replace(/^file:\/\//, ""), "--notify"];
+        if (iconRefreshPending) command.push("--refresh");
+        if (iconPromptPending) command.push("--prompt");
+        iconRefreshPending = false;
+        iconPromptPending = false;
+        iconProcess.stdinEnabled = true;
+        iconProcess.command = command;
+        iconProcess.running = true;
+    }
+
+    function requestAgentPrompt() {
+        cancelPreview(null);
+        settingsPanelOpen = false;
+        agentPromptText = "Checking installed applications…";
+        agentPromptOpen = true;
+        scheduleIconScan(true, true);
+    }
+
+    function launchIconAgent() {
+        var prompt = agentPromptText;
+        close();
+        Quickshell.execDetached(["omarchy", "agent", "prompt", prompt]);
+    }
+
+    function copyIconPrompt() {
+        iconClipboard.command = ["wl-copy", "--", agentPromptText];
+        iconClipboard.running = true;
+    }
+
+    onStylizedIconsChanged: if (stylizedIcons) scheduleIconScan(true, false)
+    onPinnedAppsChanged: if (stylizedIcons) scheduleIconScan(false, false)
+
+    Timer {
+        id: iconScanDelay
+        interval: 400
+        onTriggered: taskbar.runIconScan()
+    }
+    Timer {
+        interval: 10000
+        running: taskbar.stylizedIcons
+        repeat: true
+        onTriggered: taskbar.scheduleIconScan(false, false)
+    }
+    Process {
+        id: iconProcess
+        stdinEnabled: true
+        onStarted: {
+            write(JSON.stringify(taskbar.iconApplications()));
+            stdinEnabled = false;
+        }
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var result = JSON.parse(text);
+                    if (result.error) {
+                        taskbar.iconStatus = result.error;
+                        return;
+                    }
+                    taskbar.iconIndex = result;
+                    taskbar.iconStatus = result.errors.length ? result.errors.length + " icon(s) need attention" : "";
+                    if (result.prompt !== undefined) taskbar.agentPromptText = result.prompt;
+                } catch (error) { taskbar.iconStatus = "Icon generation failed: " + error; }
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: if (text.trim()) console.warn("OmaPanel icons:", text.trim());
+        }
+        onExited: {
+            if (taskbar.iconRefreshPending || taskbar.iconPromptPending) iconScanDelay.restart();
+        }
+    }
+    Process { id: iconClipboard }
+    AgentIconPrompt { }
+
+    Connections {
+        target: DesktopEntries.applications
+        function onValuesChanged() { if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
+    }
+    Connections {
+        target: Hyprland.toplevels
+        function onValuesChanged() { if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
     }
 
     function boolSetting(key, fallback) {
@@ -817,7 +961,7 @@ BarWidget {
         settingsPanelOpen = false;
         contextAnchor = anchor;
         contextApp = descriptorFor(app, toplevel);
-        contextWindow = toplevel;
+        contextWindow = anchor && anchor.windowGroup && indexOfToplevel(anchor.windowGroup, activeWindow) >= 0 ? activeWindow : toplevel;
         contextGroupKey = anchor && anchor.windowGroup && anchor.windowGroup.length ? anchor.groupKey : "";
         contextMenuOpen = true;
     }
@@ -825,6 +969,7 @@ BarWidget {
     function close() {
         contextMenuOpen = false;
         settingsPanelOpen = false;
+        agentPromptOpen = false;
         cancelPreview(null);
     }
 
@@ -919,6 +1064,8 @@ BarWidget {
         if (previewHoverCount === 0) previewHideTimer.restart();
     }
 
+    function open() { openSettingsPanel(); }
+
     function persistSettings(nextSettings) {
         if (!bar || !bar.shell || typeof bar.shell.updateEntryInline !== "function")
             return ;
@@ -928,6 +1075,14 @@ BarWidget {
     }
 
     function persistSetting(key, value) {
+        if (key === "integrateWorkspaces") {
+            requestWorkspaceIntegration(value === true, null);
+            return;
+        }
+        if (key === "groupRunningByWorkspace" && value === false && integrateWorkspaces) {
+            requestWorkspaceIntegration(false, {key: key, value: value});
+            return;
+        }
         var nextSettings = Object.assign({
         }, settings || {
         });
@@ -945,6 +1100,10 @@ BarWidget {
     }
 
     function resetSettings() {
+        if (integrateWorkspaces) {
+            requestWorkspaceIntegration(false, {reset: true});
+            return;
+        }
         persistSettings(defaultSettings());
     }
 
@@ -1024,7 +1183,7 @@ BarWidget {
         for (var i = 0; i < targets.length; i++) closeWindow(targets[i])
     }
 
-    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0)
+    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0 || workspaceIntegrationActive)
     implicitWidth: visible ? chrome.implicitWidth : 0
     implicitHeight: barSize
 
@@ -1381,18 +1540,20 @@ BarWidget {
                     id: appIcon
 
                     anchors.fill: parent
-                    source: chip.ready ? taskbar.resolveIconSource(chip.resolvedIconName) : ""
+                    source: chip.ready ? taskbar.styledIconSource(chip.resolvedIconName, chip.app, chip.appWindow) : ""
                     sourceSize.width: Math.round(width * Screen.devicePixelRatio)
                     sourceSize.height: Math.round(height * Screen.devicePixelRatio)
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     smooth: true
                     mipmap: true
-                    layer.enabled: chip.ready && taskbar.invertIconColors
+                    readonly property bool styled: chip.ready && taskbar.iconIsStyled(chip.app, chip.appWindow, chip.resolvedIconName)
+                    layer.enabled: styled || (chip.ready && taskbar.invertIconColors)
                     layer.smooth: true
                     layer.effect: ShaderEffect {
                         property variant source
-                        fragmentShader: Qt.resolvedUrl("shaders/invert.frag.qsb")
+                        property color tintColor: chip.foregroundColor
+                        fragmentShader: appIcon.styled ? Qt.resolvedUrl("shaders/tint.frag.qsb") : Qt.resolvedUrl("shaders/invert.frag.qsb")
                     }
 
                 }
@@ -1543,10 +1704,10 @@ BarWidget {
                 }
             }
             TaskbarSeparator {
-                visible: taskbar.sectionSeparator && chrome.pinnedCount > 0 && chrome.runningCount > 0
+                visible: taskbar.sectionSeparator && chrome.pinnedCount > 0 && (chrome.runningCount > 0 || taskbar.workspaceIntegrationActive)
             }
             Repeater {
-                model: taskbar.runningGroups.length
+                model: taskbar.workspaceIntegrationActive ? 0 : taskbar.runningGroups.length
                 Row {
                     id: runningDelegate
                     required property int index
@@ -1565,6 +1726,20 @@ BarWidget {
                         pinned: false
                         includeLeadingHitPadding: !chrome.trimEdges || runningDelegate.index > 0 || chrome.pinnedCount > 0
                         includeTrailingHitPadding: !chrome.trimEdges || runningDelegate.index < chrome.runningCount - 1
+                    }
+                }
+            }
+            Repeater {
+                model: taskbar.workspaceIntegrationActive ? taskbar.nativeWorkspaceIds.length : 0
+                Row {
+                    id: workspaceDelegate
+                    required property int index
+                    spacing: 0
+                    TaskbarSeparator {
+                        visible: taskbar.sectionSeparator && workspaceDelegate.index > 0
+                    }
+                    WorkspaceLane {
+                        workspaceId: taskbar.nativeWorkspaceIds[workspaceDelegate.index]
                     }
                 }
             }
@@ -1935,6 +2110,60 @@ BarWidget {
         }
     }
 
+    component AgentIconPrompt: KeyboardPanel {
+        id: agentDialog
+        anchorItem: taskbar.contextAnchor || taskbar
+        owner: taskbar
+        bar: taskbar.bar
+        open: taskbar.agentPromptOpen
+        padding: Style.space(12)
+        contentWidth: fittedContentWidth(Style.space(560))
+        contentHeight: fittedContentHeight(Style.space(460))
+        focusTarget: promptText
+        Column {
+            anchors.fill: parent
+            spacing: Style.space(12)
+            Text {
+                text: "Generate monochrome icons"
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.subtitle
+                font.bold: true
+            }
+            Flickable {
+                width: parent.width
+                height: Math.max(80, parent.height - buttons.height - Style.space(55))
+                contentWidth: width
+                contentHeight: promptText.implicitHeight
+                clip: true
+                TextEdit {
+                    id: promptText
+                    width: parent.width
+                    text: taskbar.agentPromptText
+                    textFormat: TextEdit.PlainText
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.Wrap
+                    color: Color.popups.text
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    Keys.onEscapePressed: taskbar.close()
+                }
+            }
+            Row {
+                id: buttons
+                spacing: Style.space(8)
+                Button {
+                    text: "Run with default agent"
+                    enabled: taskbar.agentPromptText !== "Checking installed applications…"
+                    onClicked: taskbar.launchIconAgent()
+                }
+                Button { text: "Copy prompt"; onClicked: taskbar.copyIconPrompt() }
+                Button { text: "Close"; onClicked: taskbar.close() }
+            }
+        }
+    }
+
     component SettingToggle: Toggle {
         required property var host
         required property string settingKey
@@ -2228,6 +2457,16 @@ BarWidget {
             settingDescription: "One icon per app; click to cycle windows. Combine with workspace grouping."
         }
 
+        SettingToggle {
+            host: panel
+            settingKey: "integrateWorkspaces"
+            settingLabel: "Integrate with workspace plugin"
+            settingDescription: "Use Omarchy’s native workspace buttons before each workspace’s apps."
+            enabled: panel.boolValue("groupRunningByWorkspace", true)
+            opacity: enabled ? 1 : 0.45
+            activeFocusOnTab: enabled
+        }
+
         SettingNumber {
             host: panel
             settingKey: "maxRunningWindows"
@@ -2487,9 +2726,30 @@ BarWidget {
 
         }
 
+        Row {
+            width: parent.width
+            spacing: Style.space(8)
+            SettingToggle {
+                host: panel
+                width: parent.width - robotButton.width - parent.spacing
+                settingKey: "stylizedIcons"
+                settingLabel: "Stylized icons"
+                settingDescription: "Theme-colored monochrome symbols; missing icons are generated locally."
+            }
+            Button {
+                id: robotButton
+                anchors.verticalCenter: parent.verticalCenter
+                iconText: "\udb81\udea9"
+                tooltipText: "Generate missing monochrome icons with your default agent"
+                onClicked: panel.owner.requestAgentPrompt()
+            }
+        }
+
         SettingToggle {
             host: panel
             settingKey: "invertIconColors"
+            enabled: !panel.boolValue("stylizedIcons", false)
+            opacity: enabled ? 1 : 0.45
             settingLabel: "Invert icon colors"
             settingDescription: "Invert application icon pixels while preserving transparency."
             fallbackValue: false

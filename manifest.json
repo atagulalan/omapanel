@@ -88,7 +88,8 @@
       "previewHeight": 220,
       "previewAutoHeight": false,
       "previewQuality": 100,
-      "groupRunningByApp": false
+      "groupRunningByApp": false,
+      "stylizedIcons": false
     },
     "schema": [
       {
@@ -114,7 +115,7 @@
       },
       {
         "key": "groupRunningByApp",
-        "type": "bool",
+        "type": "boolean",
         "label": "Group by app",
         "description": "One icon per application, or per application per workspace; click to cycle windows.",
         "defaultValue": false
@@ -656,6 +657,13 @@
         "label": "Excluded classes",
         "description": "Comma-separated, case-insensitive regular expressions for windows to hide.",
         "defaultValue": ""
+      },
+      {
+        "key": "stylizedIcons",
+        "type": "boolean",
+        "label": "Stylized icons",
+        "description": "Use locally generated monochrome icons tinted by the current theme.",
+        "defaultValue": false
       }
     ]
   }

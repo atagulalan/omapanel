@@ -3,7 +3,7 @@
         settingsPanelOpen = false;
         contextAnchor = anchor;
         contextApp = descriptorFor(app, toplevel);
-        contextWindow = toplevel;
+        contextWindow = anchor && anchor.windowGroup && indexOfToplevel(anchor.windowGroup, activeWindow) >= 0 ? activeWindow : toplevel;
         contextGroupKey = anchor && anchor.windowGroup && anchor.windowGroup.length ? anchor.groupKey : "";
         contextMenuOpen = true;
     }
@@ -11,6 +11,7 @@
     function close() {
         contextMenuOpen = false;
         settingsPanelOpen = false;
+        agentPromptOpen = false;
         cancelPreview(null);
     }
 
@@ -104,3 +105,5 @@
     function releasePreview() {
         if (previewHoverCount === 0) previewHideTimer.restart();
     }
+
+    function open() { openSettingsPanel(); }

@@ -18,7 +18,7 @@
     property string pendingPreviewGroupKey: ""
     property string previewGroupKey: ""
     readonly property var previewWindows: windowsForGroupKey(previewGroupKey)
-    readonly property bool opened: contextMenuOpen || settingsPanelOpen
+    readonly property bool opened: contextMenuOpen || settingsPanelOpen || agentPromptOpen
     readonly property var contextWindows: contextGroupKey ? windowsForGroupKey(contextGroupKey) : visibleDescriptorWindows(contextApp, contextWindow)
     readonly property var contextEntry: desktopEntryFor(contextApp, contextWindow)
     readonly property var contextActions: {

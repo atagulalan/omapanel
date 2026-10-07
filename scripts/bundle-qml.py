@@ -26,6 +26,7 @@ INLINE_FILES = [
     "taskbar/ContextMenu.qml",
     "taskbar/WindowPreview.qml",
     "taskbar/WindowThumbnail.qml",
+    "taskbar/AgentIconPrompt.qml",
     "settings/fields/SettingToggle.qml",
     "settings/fields/SettingDropdown.qml",
     "settings/fields/SettingNumber.qml",
@@ -321,6 +322,7 @@ def bundle() -> str:
     entry_text = expand_includes(ENTRY.read_text(), ENTRY)
     check_balanced(ENTRY, entry_text)
     entry_imports, entry_body = split_qml(entry_text)
+    entry_body = rewrite_resolved_urls(entry_body, ENTRY)
     groups.append((entry_imports, True, ENTRY))
 
     component_blocks: list[str] = []

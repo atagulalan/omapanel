@@ -36,18 +36,20 @@
                 id: appIcon
 
                 anchors.fill: parent
-                source: chip.ready ? taskbar.resolveIconSource(chip.resolvedIconName) : ""
+                source: chip.ready ? taskbar.styledIconSource(chip.resolvedIconName, chip.app, chip.appWindow) : ""
                 sourceSize.width: Math.round(width * Screen.devicePixelRatio)
                 sourceSize.height: Math.round(height * Screen.devicePixelRatio)
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 smooth: true
                 mipmap: true
-                layer.enabled: chip.ready && taskbar.invertIconColors
+                readonly property bool styled: chip.ready && taskbar.iconIsStyled(chip.app, chip.appWindow, chip.resolvedIconName)
+                layer.enabled: styled || (chip.ready && taskbar.invertIconColors)
                 layer.smooth: true
                 layer.effect: ShaderEffect {
                     property variant source
-                    fragmentShader: Qt.resolvedUrl("../shaders/invert.frag.qsb")
+                    property color tintColor: chip.foregroundColor
+                    fragmentShader: appIcon.styled ? Qt.resolvedUrl("../shaders/tint.frag.qsb") : Qt.resolvedUrl("../shaders/invert.frag.qsb")
                 }
 
             }
