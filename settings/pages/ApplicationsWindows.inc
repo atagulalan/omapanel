@@ -38,7 +38,8 @@
         host: panel
         settingKey: "excludedClasses"
         settingLabel: "Excluded classes"
-        placeholder: "Comma-separated regular expressions"
+        settingDescription: "Class patterns, or webapp names such as Omarchy Radio (case insensitive). Launchers stay visible."
+        placeholder: "Signal, Omarchy Radio"
     }
 
     Rectangle {

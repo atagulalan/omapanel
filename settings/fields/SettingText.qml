@@ -8,6 +8,7 @@ Column {
     required property string settingLabel
     property string fallbackValue: ""
     property string placeholder: ""
+    property string settingDescription: ""
 
     width: parent ? parent.width : 0
     spacing: Style.space(5)
@@ -19,6 +20,17 @@ Column {
         font.family: host.contentFontFamily
         font.pixelSize: Style.font.caption
         font.bold: true
+    }
+
+    Text {
+        width: parent.width
+        visible: parent.settingDescription !== ""
+        text: parent.settingDescription
+        textFormat: Text.PlainText
+        color: Util.alpha(host.contentForeground, 0.65)
+        font.family: host.contentFontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
     }
 
     TextField {

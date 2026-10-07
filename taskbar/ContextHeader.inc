@@ -32,10 +32,24 @@
                     onClicked: taskbar.openSettingsPanel()
                 }
 
+                Button {
+                    id: contextHideButton
+                    anchors.right: contextSettingsButton.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconText: "\uf070"
+                    foreground: taskbar.bar ? taskbar.bar.barForeground : Color.foreground
+                    accent: Color.accent
+                    fontFamily: taskbar.bar ? taskbar.bar.fontFamily : Style.font.family
+                    horizontalPadding: Style.space(9)
+                    verticalPadding: Style.space(6)
+                    tooltipText: "Hide running windows of this app"
+                    onClicked: taskbar.hideContextApp()
+                }
+
                 Column {
                     anchors.left: contextIcon.right
                     anchors.leftMargin: Style.space(10)
-                    anchors.right: contextSettingsButton.left
+                    anchors.right: contextHideButton.left
                     anchors.rightMargin: Style.space(8)
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: Style.space(2)

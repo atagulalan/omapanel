@@ -32,10 +32,13 @@
         if (!excludedClasses.trim())
             return false;
 
-        var patterns = excludedClasses.split(",");
+        var patterns = Identity.exclusionPatterns(excludedClasses);
+        var entry = windowDesktopEntry(toplevel);
+        var webappName = Identity.isWebapp(entry, windowCandidates(toplevel)) && entry ? Identity.normalizedName(entry.name) : "";
         var candidates = windowCandidates(toplevel);
         for (var i = 0; i < patterns.length; i++) {
-            if (patternMatches(patterns[i].trim(), candidates))
+            if ((webappName && Identity.normalizedName(patterns[i]) === webappName)
+                || patternMatches(patterns[i].trim(), candidates))
                 return true;
 
         }
@@ -63,14 +66,13 @@
 
     function windowDesktopEntry(toplevel) {
         var candidates = windowCandidates(toplevel);
+        var entries = DesktopEntries.applications.values || [];
+        var exact = Identity.matchingEntry(candidates, entries);
+        if (exact) return exact;
         for (var i = 0; i < candidates.length; i++) {
-            if (!isPlausibleAppId(candidates[i]))
-                continue;
-
+            if (!isPlausibleAppId(candidates[i])) continue;
             var entry = DesktopEntries.heuristicLookup(candidates[i]);
-            if (entry)
-                return entry;
-
+            if (entry) return entry;
         }
         return null;
     }

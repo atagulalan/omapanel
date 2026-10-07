@@ -31,7 +31,7 @@
         var result = [];
         for (var i = 0; i < pinnedApps.length; i++) {
             var app = pinnedApps[i];
-            var windows = windowsForDescriptor(app, null);
+            var windows = windowsForDescriptor(app, null).filter(function(window) { return !isExcludedWindow(window); });
             if (windows.length === 0) {
                 result.push({
                     "app": app,

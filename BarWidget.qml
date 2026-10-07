@@ -17,6 +17,7 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
+import "AppIdentity.js" as Identity
 import "TaskHelpers.js" as Helpers
 import "TaskMatch.js" as Match
 
@@ -140,7 +141,7 @@ BarWidget {
         var result = [];
         for (var i = 0; i < pinnedApps.length; i++) {
             var app = pinnedApps[i];
-            var windows = windowsForDescriptor(app, null);
+            var windows = windowsForDescriptor(app, null).filter(function(window) { return !isExcludedWindow(window); });
             if (windows.length === 0) {
                 result.push({
                     "app": app,
@@ -345,10 +346,13 @@ BarWidget {
         if (!excludedClasses.trim())
             return false;
 
-        var patterns = excludedClasses.split(",");
+        var patterns = Identity.exclusionPatterns(excludedClasses);
+        var entry = windowDesktopEntry(toplevel);
+        var webappName = Identity.isWebapp(entry, windowCandidates(toplevel)) && entry ? Identity.normalizedName(entry.name) : "";
         var candidates = windowCandidates(toplevel);
         for (var i = 0; i < patterns.length; i++) {
-            if (patternMatches(patterns[i].trim(), candidates))
+            if ((webappName && Identity.normalizedName(patterns[i]) === webappName)
+                || patternMatches(patterns[i].trim(), candidates))
                 return true;
 
         }
@@ -376,14 +380,13 @@ BarWidget {
 
     function windowDesktopEntry(toplevel) {
         var candidates = windowCandidates(toplevel);
+        var entries = DesktopEntries.applications.values || [];
+        var exact = Identity.matchingEntry(candidates, entries);
+        if (exact) return exact;
         for (var i = 0; i < candidates.length; i++) {
-            if (!isPlausibleAppId(candidates[i]))
-                continue;
-
+            if (!isPlausibleAppId(candidates[i])) continue;
             var entry = DesktopEntries.heuristicLookup(candidates[i]);
-            if (entry)
-                return entry;
-
+            if (entry) return entry;
         }
         return null;
     }
@@ -448,6 +451,23 @@ BarWidget {
             "width": isNaN(width) ? 0 : width,
             "height": isNaN(height) ? 0 : height
         };
+    }
+
+    function hideContextApp() {
+        var entry = desktopEntryFor(contextApp, contextWindow);
+        var candidates = windowCandidates(contextWindow);
+        if (!candidates.length && contextApp && contextApp.desktopId)
+            candidates = [contextApp.desktopId];
+        var webapp = Identity.isWebapp(entry, candidates);
+        var token = webapp && entry && entry.name ? String(entry.name).trim()
+            : (contextApp ? String(contextApp.match || "") : "");
+        if (!token) return;
+        var patterns = Identity.exclusionPatterns(excludedClasses);
+        if (!patterns.some(function(pattern) {
+            return Identity.normalizedName(pattern) === Identity.normalizedName(token);
+        })) persistSetting("excludedClasses", excludedClasses.trim()
+            + (excludedClasses.trim() ? ", " : "") + Identity.exclusionToken(token));
+        close();
     }
 
     function launchCommandForDesktopId(desktopId) {
@@ -1554,10 +1574,24 @@ BarWidget {
                         onClicked: taskbar.openSettingsPanel()
                     }
 
+                    Button {
+                        id: contextHideButton
+                        anchors.right: contextSettingsButton.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconText: "\uf070"
+                        foreground: taskbar.bar ? taskbar.bar.barForeground : Color.foreground
+                        accent: Color.accent
+                        fontFamily: taskbar.bar ? taskbar.bar.fontFamily : Style.font.family
+                        horizontalPadding: Style.space(9)
+                        verticalPadding: Style.space(6)
+                        tooltipText: "Hide running windows of this app"
+                        onClicked: taskbar.hideContextApp()
+                    }
+
                     Column {
                         anchors.left: contextIcon.right
                         anchors.leftMargin: Style.space(10)
-                        anchors.right: contextSettingsButton.left
+                        anchors.right: contextHideButton.left
                         anchors.rightMargin: Style.space(8)
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.space(2)
@@ -1941,6 +1975,7 @@ BarWidget {
         required property string settingLabel
         property string fallbackValue: ""
         property string placeholder: ""
+        property string settingDescription: ""
 
         width: parent ? parent.width : 0
         spacing: Style.space(5)
@@ -1952,6 +1987,17 @@ BarWidget {
             font.family: host.contentFontFamily
             font.pixelSize: Style.font.caption
             font.bold: true
+        }
+
+        Text {
+            width: parent.width
+            visible: parent.settingDescription !== ""
+            text: parent.settingDescription
+            textFormat: Text.PlainText
+            color: Util.alpha(host.contentForeground, 0.65)
+            font.family: host.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
         }
 
         TextField {
@@ -2106,7 +2152,8 @@ BarWidget {
             host: panel
             settingKey: "excludedClasses"
             settingLabel: "Excluded classes"
-            placeholder: "Comma-separated regular expressions"
+            settingDescription: "Class patterns, or webapp names such as Omarchy Radio (case insensitive). Launchers stay visible."
+            placeholder: "Signal, Omarchy Radio"
         }
 
         Rectangle {
