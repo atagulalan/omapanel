@@ -2466,60 +2466,63 @@ BarWidget {
         width: parent ? parent.width : 0
         spacing: Style.space(8)
 
-        SettingToggle {
-            host: generation.host
-            settingKey: "stylizedIcons"
-            settingLabel: "Stylized icons"
-            settingDescription: "Theme-colored monochrome symbols; missing icons are generated locally."
-        }
-
         BorderSurface {
-            id: agentBox
+            id: generationBox
             width: parent.width
-            implicitHeight: Math.max(54, agentRow.implicitHeight + Style.spacing.huge)
+            implicitHeight: rows.height + borderTop + borderBottom
             color: Style.normalFillFor(generation.host.contentForeground, Color.accent)
             radius: Style.cornerRadius
-            borderSpec: Border.controlSpec("normal", generation.host.contentForeground, Color.accent)
-            Row {
-                id: agentRow
+            borderSpec: Border.controlSpec(stylizedToggle.activeFocus ? "focus" : "normal",
+                generation.host.contentForeground, Color.accent)
+            Column {
+                id: rows
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: agentBox.borderLeft + Style.spacing.rowPaddingX
-                anchors.rightMargin: agentBox.borderRight + Style.spacing.rowPaddingX
-                spacing: Style.spacing.rowPaddingX
-                Column {
-                    width: parent.width - agentControl.width - parent.spacing
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Style.spacing.xs
-                    Text {
-                        width: parent.width
-                        text: "Generate icons with default Agent"
-                        textFormat: Text.PlainText
-                        color: generation.host.contentForeground
-                        font.family: generation.host.contentFontFamily
-                        font.pixelSize: Style.font.subtitle
-                        font.bold: true
-                        wrapMode: Text.WordWrap
-                    }
-                    Text {
-                        width: parent.width
-                        text: "Generate missing or outdated monochrome icons."
-                        textFormat: Text.PlainText
-                        color: Qt.darker(generation.host.contentForeground, 1.5)
-                        font.family: generation.host.contentFontFamily
-                        font.pixelSize: Style.font.caption
-                        wrapMode: Text.WordWrap
-                    }
+                anchors.top: parent.top
+                anchors.leftMargin: generationBox.borderLeft
+                anchors.rightMargin: generationBox.borderRight
+                anchors.topMargin: generationBox.borderTop
+                SettingToggle {
+                    id: stylizedToggle
+                    host: generation.host
+                    settingKey: "stylizedIcons"
+                    settingLabel: "Stylized icons"
+                    settingDescription: "Theme-colored monochrome symbols; missing icons are generated locally."
+                    color: "transparent"
+                    borderSpec: Border.none()
                 }
-                IconGenerationControl {
-                    id: agentControl
-                    width: implicitWidth
-                    height: implicitHeight
-                    anchors.verticalCenter: parent.verticalCenter
-                    worker: generation.worker
-                    foreground: generation.host.contentForeground
-                    fontFamily: generation.host.contentFontFamily
+                Item {
+                    width: parent.width
+                    implicitHeight: Math.max(agentTitle.implicitHeight, agentControl.height) + Style.spacing.huge
+                    Row {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Style.spacing.rowPaddingX
+                        anchors.rightMargin: Style.spacing.rowPaddingX
+                        spacing: Style.spacing.rowPaddingX
+                        Text {
+                            id: agentTitle
+                            width: parent.width - agentControl.width - parent.spacing
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Generate icons with default Agent"
+                            textFormat: Text.PlainText
+                            color: generation.host.contentForeground
+                            font.family: generation.host.contentFontFamily
+                            font.pixelSize: Style.font.subtitle
+                            font.bold: true
+                            wrapMode: Text.WordWrap
+                        }
+                        IconGenerationControl {
+                            id: agentControl
+                            width: implicitWidth
+                            height: implicitHeight
+                            anchors.verticalCenter: parent.verticalCenter
+                            worker: generation.worker
+                            foreground: generation.host.contentForeground
+                            fontFamily: generation.host.contentFontFamily
+                        }
+                    }
                 }
             }
         }

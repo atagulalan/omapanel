@@ -235,8 +235,9 @@ Right-click pin and unpin actions normalize the array and write it back to
 
 ## Stylized icon lifecycle
 
-The **Generate icons with default Agent** box uses the same title style as the
-stylized-icons toggle, with a robot button aligned below its switch. During
+One box contains the stylized-icons toggle and a **Generate icons with default
+Agent** row below it, with no agent subtext. The robot button aligns below the
+switch. During
 queued or running icon work, the robot button is replaced by a flat spinner
 of the same size. Hovering it shows **Generating stylized icons…**. The agent
 prompt opens after its scan finishes; closing settings cancels that popup.
