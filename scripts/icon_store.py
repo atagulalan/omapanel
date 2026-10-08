@@ -92,7 +92,11 @@ def prompt_for(result):
     items = json.dumps(result['missing'], indent=2, ensure_ascii=False)
     return ('Create recognizable monochrome icons for the applications in the JSON list below. '
             'Inspect each original icon. Use transparent backgrounds, a consistent 24×24 SVG viewBox, '
-            'restrained geometric forms and ~1.7-unit strokes, with clear negative space and balanced optical weight. '
+            'restrained geometric forms, with clear negative space and balanced optical weight. '
+            'Prefer hollow outlines over solid silhouettes or thick strokes, including brand marks. '
+            'Use fill="none" and white strokes around 1.5–1.7 units where practical. '
+            'Simplify dense symbols by reducing repeated elements and widening gaps. '
+            'Preserve recognizability at 14 px; use solid geometry only when an outline loses the application’s identity. '
             'Use white geometry; OmaPanel applies its active theme color. Avoid solid background tiles, tiny details, '
             'gradients, shadows and text. Compare at 14, 18, 24 and 48 pixels; improve any unclear icon. '
             'Save each icon as SVG at its output path (or PNG with the same stem). Generate only these missing/stale icons. '
