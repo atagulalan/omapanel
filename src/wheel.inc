@@ -19,7 +19,9 @@
         return -1;
     }
 
-    function wheelGroup(app, toplevel, pinned) {
+    function wheelGroup(app, toplevel, pinned, chip) {
+        if (chip && (groupRunningByApp || chip.launchOnly))
+            return {key: chip.groupKey, windows: chip.windowGroup};
         if (!toplevel)
             return {
             "key": "",
@@ -55,8 +57,8 @@
         groupWheelCursorDeadline = 0;
     }
 
-    function cycleWindowGroup(app, toplevel, pinned, delta) {
-        var group = wheelGroup(app, toplevel, pinned);
+    function cycleWindowGroup(app, toplevel, pinned, delta, chip) {
+        var group = wheelGroup(app, toplevel, pinned, chip);
         if (group.windows.length === 0) {
             resetGroupWheel();
             return false;

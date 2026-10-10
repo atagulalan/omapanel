@@ -87,7 +87,10 @@
       "previewWidth": 320,
       "previewHeight": 220,
       "previewAutoHeight": false,
-      "previewQuality": 100
+      "previewQuality": 100,
+      "groupRunningByApp": false,
+      "stylizedIcons": false,
+      "integrateWorkspaces": false
     },
     "schema": [
       {
@@ -112,6 +115,13 @@
         "defaultValue": true
       },
       {
+        "key": "groupRunningByApp",
+        "type": "boolean",
+        "label": "Group by app",
+        "description": "One icon per application, or per application per workspace; click to cycle windows.",
+        "defaultValue": false
+      },
+      {
         "key": "showIcons",
         "type": "boolean",
         "label": "Show application icons",
@@ -133,8 +143,8 @@
       {
         "key": "iconOnlyWhenClosed",
         "type": "boolean",
-        "label": "Icon only when closed",
-        "description": "Pinned apps show only their icon until a matching window opens.",
+        "label": "Hide label of closed apps",
+        "description": "Hide labels on closed pinned apps when application names are enabled.",
         "defaultValue": true
       },
       {
@@ -279,7 +289,7 @@
         "key": "previewQuality",
         "type": "integer",
         "label": "Preview quality",
-        "description": "Thumbnail sharpness as a percentage of the preview size; range 10–100.",
+        "description": "Thumbnail sharpness as a percentage of the preview size; range 10\u2013100.",
         "min": 10,
         "max": 100,
         "step": 5,
@@ -636,7 +646,7 @@
       {
         "key": "maxRunningWindows",
         "type": "integer",
-        "label": "Maximum running windows",
+        "label": "Maximum running icons",
         "min": 1,
         "max": 30,
         "step": 1,
@@ -648,6 +658,20 @@
         "label": "Excluded classes",
         "description": "Comma-separated, case-insensitive regular expressions for windows to hide.",
         "defaultValue": ""
+      },
+      {
+        "key": "stylizedIcons",
+        "type": "boolean",
+        "label": "Stylized icons",
+        "description": "Use locally generated monochrome icons tinted by the current theme.",
+        "defaultValue": false
+      },
+      {
+        "key": "integrateWorkspaces",
+        "type": "boolean",
+        "label": "Integrate with workspace plugin",
+        "description": "Reuse native workspace buttons before each workspace group; requires workspace grouping.",
+        "defaultValue": false
       }
     ]
   }

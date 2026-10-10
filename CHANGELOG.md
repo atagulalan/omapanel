@@ -25,6 +25,20 @@ All notable changes to OmaPanel are documented here.
   with `scripts/bundle-qml.py`, so Omarchy still loads one QML file.
 - Drive settings tabs from a single list plus StackLayout instead of
   four copy-pasted buttons and visible flags.
+- Add a crossed-eye Hide action to the context menu that hides a running app;
+  browser webapps are recognized by desktop entry and excluded by name.
+- Add optional Group by app with click cycling and clickable multi-window
+  previews, showing workspace numbers when workspace grouping is off.
+- Keep pinned launchers separate from running windows when grouping by
+  workspace.
+- Cancel hover previews while menus, settings, or the agent prompt are open.
+- Rename Icon only when closed to Hide label of closed apps and disable it
+  when Labels is off.
+- Add optional stylized monochrome icons with live theme tint, local
+  generation, and agent-generated overrides.
+- Add optional workspace integration that places the native Omarchy workspace
+  buttons before each workspace group and restores the standalone switcher.
+- Resolve Omarchy-launched terminal apps to their program names and icons.
 
 ## 1.11.0
 

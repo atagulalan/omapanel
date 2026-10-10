@@ -16,24 +16,29 @@ The plugin uses the permanent namespaced ID `atagulalan.omapanel`.
 ## Highlights
 
 - Pinned applications stay available even when they are closed.
-- Multiple windows belonging to one pinned application appear as adjacent
-  taskbar items instead of being collapsed into a single window.
+- Optional application grouping combines matching windows into one icon, with
+  click-to-cycle focus and a clickable preview for each window.
 - Left-click launches a closed application or focuses an existing window.
 - Unpinned Hyprland windows appear automatically.
-- Running windows can be grouped by workspace with separators between groups.
+- Workspace grouping keeps pins as launchers and places their running windows
+  in each workspace. Optional integration reuses the native Omarchy workspace
+  buttons inside these groups.
 - Scrolling a multi-window pinned application cycles focus inside that
   application; scrolling a grouped running window cycles focus inside its
   workspace.
-- Closed pinned applications can stay compact with icon-only mode.
+- **Hide label of closed apps** keeps closed pins compact when Labels is on.
 - Click mappings for left, right, middle, Ctrl+left, Shift+left, and Alt+left
   cover focus, launch, window, pin, menu, and settings actions.
 - Normal, hover, and active states each have independent foreground,
   background, font-weight, and foreground-opacity controls.
-- Application icon colors can be inverted without changing their transparency.
+- Application icons can use theme-colored monochrome symbols, generated locally
+  with separate persistent agent overrides, or have their colors inverted.
 - Optional bar chrome can set a limited height (centered in the Omarchy bar),
   padding, a background fill, and rounding around the chip row.
 - Hover can keep or replace the active style on the focused window.
-- Hovering an open window can show a live preview thumbnail.
+- Hovering a grouped icon shows clickable live thumbnails for its windows.
+  Without workspace grouping, each preview shows a native-style workspace number.
+  Menus and settings suppress previews.
 - Pinned applications can be reordered from the settings panel.
 - Active-window indicators support `Underline`, `Top`, `Dot`, and `None`.
 - Labels support `[APP_NAME]` and `[WINDOW_TITLE]` placeholders.
@@ -45,6 +50,7 @@ The plugin uses the permanent namespaced ID `atagulalan.omapanel`.
   - New Window;
   - pin and unpin;
   - Close Window and Close N Windows;
+  - hide running windows, using the desktop-entry name for webapps;
   - quick access to OmaPanel Settings.
 
 - The built-in settings panel opens on a category list, then a detail page for
@@ -58,6 +64,13 @@ The plugin uses the permanent namespaced ID `atagulalan.omapanel`.
 - Hyprland
 - Quickshell and the Omarchy Shell QML modules
 - `hyprctl` for focus and close actions
+- Python 3 for identifying Omarchy-launched terminal apps
+- ImageMagick (`magick`) for optional stylized icons
+- `wl-copy` for copying the optional agent prompt
+
+Icon actions check their prerequisites each time and show Omarchy setup commands
+when something is missing. Generation tools use official core/extra packages;
+agent setup uses Omarchy’s default-agent workflow.
 
 OmaPanel is a horizontal bar widget. It intentionally hides itself on vertical
 bars.
@@ -95,14 +108,38 @@ omarchy plugin remove atagulalan.omapanel --yes
 Left-click an item to launch or focus it. Right-click an item to open its
 application menu.
 
-Wheel down focuses the next window in the hovered group and wheel up focuses
-the previous one, wrapping at either end. A pinned group contains all open
-windows matching that pinned application. A running-window group contains the
-visible windows from the same workspace when `groupRunningByWorkspace` is
-enabled. Entering a group with no active member focuses the hovered chip first;
-the next wheel step continues in the requested direction. A one-window group
-keeps focus on its only window and consumes the gesture, while a closed pin
-leaves it to the containing bar.
+With **Group by app**, clicking a running icon cycles through that app's
+windows. With **Group by workspace** enabled too, cycling and previews stay
+within the icon's workspace. Pins become launch-only icons and each workspace
+has separate running icons. Without app grouping, each window has its own icon.
+The mouse wheel cycles within the hovered app group, or within the workspace
+when only workspace grouping is enabled.
+
+The crossed-eye button beside the settings gear hides running icons. Webapps
+use their installed name: entering `omarchy radio` in **Excluded classes** hides
+Omarchy Radio without hiding other Chrome apps. Native apps still accept class
+regular expressions. Exclusions leave pinned launchers available.
+
+**Integrate with workspace plugin** is available under Applications after
+workspace grouping is enabled. It reuses the installed native workspace widget,
+including empty workspace buttons and the current indicator, and reversibly
+removes the standalone widget. Turning integration or workspace grouping off
+restores the switcher's original placement. Special/scratchpad windows are omitted
+while integration is active. See the settings reference for recovery instructions.
+
+**Stylized icons** under Icons & labels first uses installed symbolic icons,
+then original vector references for common apps, then converts the original
+icon locally. Icons follow the theme foreground and hover/active colors.
+The robot button checks missing or stale agent icons and opens a prompt with
+**Run default agent** and **Copy prompt** actions. Agent icons take precedence;
+the separate local script cache remains the fallback. New apps are handled
+automatically. Switching stylized icons off and on checks original icon changes.
+
+Omarchy-launched TUIs retain their own app identity. Marked terminal windows
+resolve their running program against TUI desktop launchers or bundled agent
+names/assets, so Codex shows its Codex icon and groups separately from terminals.
+Hide saves the recognized TUI name; `codex` excludes Codex windows. Ordinary
+terminal windows keep their terminal identity, regardless of their title.
 
 Use the gear button in the upper-right corner of that menu to open
 **OmaPanel Settings**. Changes are written immediately to the

@@ -1,10 +1,11 @@
-    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0)
+    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0 || workspaceIntegrationActive)
     implicitWidth: visible ? chrome.implicitWidth : 0
     implicitHeight: barSize
 
     Connections {
         function onRawEvent(event) {
             taskbar.hyprlandRevision++;
+            if (/^(openwindow|closewindow|windowtitle)/.test(event.name)) taskbar.scheduleTuiScan();
             if (taskbar.previewToplevel && !taskbar.previewToplevelAlive(taskbar.previewToplevel))
                 taskbar.cancelPreview(taskbar.previewToplevel);
         }
@@ -27,7 +28,9 @@
         id: previewHideTimer
 
         interval: 160
-        onTriggered: taskbar.cancelPreview(null)
+        onTriggered: {
+            if (!taskbar.previewPointerHovered && taskbar.previewHoverCount === 0) taskbar.cancelPreview(null);
+        }
     }
 
     ContextMenu {

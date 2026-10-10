@@ -5,15 +5,23 @@
             Repeater {
                 model: taskbar && taskbar.contextWindows ? taskbar.contextWindows : []
 
-                MenuRow {
-                    required property var modelData
-
-                    taskbar: taskbar
-                    text: taskbar.windowTitle(modelData) || taskbar.windowLabel(modelData)
-                    iconText: taskbar.activeWindow === modelData ? "\uf111" : ""
-                    onTriggered: {
-                        taskbar.close();
-                        taskbar.activateOrLaunch(null, modelData);
+                Item {
+                    id: contextWindowRow
+                    required property int index
+                    width: parent.width
+                    implicitHeight: windowRow.implicitHeight
+                    readonly property var window: taskbar.contextWindows[index] || null
+                    MenuRow {
+                        id: windowRow
+                        taskbar: taskbar
+                        width: parent.width
+                        text: taskbar.windowTitle(contextWindowRow.window) || taskbar.windowLabel(contextWindowRow.window)
+                        iconText: taskbar.sameToplevel(taskbar.activeWindow, contextWindowRow.window) ? "\uf111" : ""
+                        onTriggered: {
+                            var target = contextWindowRow.window;
+                            taskbar.close();
+                            taskbar.activateOrLaunch(null, target);
+                        }
                     }
                 }
 
@@ -39,13 +47,20 @@
             Repeater {
                 model: taskbar && taskbar.contextActions ? taskbar.contextActions : []
 
-                MenuRow {
-                    required property var modelData
-
-                    taskbar: taskbar
-                    text: taskbar.asPlainUiText(String(modelData.name || modelData.id || "Application Action"))
-                    iconText: "\uf144"
-                    onTriggered: taskbar.executeDesktopAction(modelData)
+                Item {
+                    id: contextActionRow
+                    required property int index
+                    width: parent.width
+                    implicitHeight: actionRow.implicitHeight
+                    readonly property var action: taskbar.contextActions[index] || null
+                    MenuRow {
+                        id: actionRow
+                        taskbar: taskbar
+                        width: parent.width
+                        text: taskbar.asPlainUiText(String(contextActionRow.action ? contextActionRow.action.name || contextActionRow.action.id : ""))
+                        iconText: "\uf144"
+                        onTriggered: taskbar.executeDesktopAction(contextActionRow.action)
+                    }
                 }
 
             }

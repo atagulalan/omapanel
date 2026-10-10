@@ -14,9 +14,12 @@ import QtQuick.Controls as QQC
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
+import "AppIdentity.js" as Identity
+import "TaskGroups.js" as Groups
 import "TaskHelpers.js" as Helpers
 import "TaskMatch.js" as Match
 
@@ -24,15 +27,21 @@ BarWidget {
     id: taskbar
 
     moduleName: "atagulalan.omapanel"
+    Component.onCompleted: {
+        scheduleTuiScan();
+        if (stylizedIcons) scheduleIconScan(true, false);
+        if (integrateWorkspaces) workspaceSync.restart();
+    }
 
     readonly property string defaultPinnedApps: '[{"label":"Zen","match":"^zen$","launch":"omarchy-launch-browser","icon":"zen-browser","desktopId":"zen"},{"label":"Cursor","match":"^cursor$","launch":"uwsm-app -- cursor","icon":"co.anysphere.cursor","desktopId":"cursor"}]'
     readonly property var pinnedApps: parsePinnedApps(setting("pinnedApps", defaultPinnedApps))
     readonly property bool showRunning: boolSetting("showRunning", true)
     readonly property bool groupRunningByWorkspace: boolSetting("groupRunningByWorkspace", true)
+    readonly property bool groupRunningByApp: boolSetting("groupRunningByApp", false)
     readonly property bool showIcons: boolSetting("showIcons", true)
     readonly property bool invertIconColors: boolSetting("invertIconColors", false)
     readonly property bool showLabels: boolSetting("showLabels", true)
-    readonly property bool iconOnlyWhenClosed: boolSetting("iconOnlyWhenClosed", true)
+    readonly property bool iconOnlyWhenClosed: showLabels && boolSetting("iconOnlyWhenClosed", true)
     readonly property string leftClickAction: normalizedClickAction(setting("leftClickAction", "Focus or Launch"), "Focus or Launch")
     readonly property string rightClickAction: normalizedClickAction(setting("rightClickAction", "Open Context Menu"), "Open Context Menu")
     readonly property string middleClickAction: normalizedClickAction(setting("middleClickAction", "Do Nothing"), "Do Nothing")
@@ -123,8 +132,12 @@ BarWidget {
     property Item previewAnchor: null
     property var previewToplevel: null
     property int previewHoverCount: 0
-    readonly property bool opened: contextMenuOpen || settingsPanelOpen
-    readonly property var contextWindows: windowsForDescriptor(contextApp, contextWindow)
+    property bool previewPointerHovered: false
+    property string pendingPreviewGroupKey: ""
+    property string previewGroupKey: ""
+    readonly property var previewWindows: windowsForGroupKey(previewGroupKey)
+    readonly property bool opened: contextMenuOpen || settingsPanelOpen || agentPromptOpen
+    readonly property var contextWindows: contextGroupKey ? windowsForGroupKey(contextGroupKey) : visibleDescriptorWindows(contextApp, contextWindow)
     readonly property var contextEntry: desktopEntryFor(contextApp, contextWindow)
     readonly property var contextActions: {
         var actions = contextEntry && contextEntry.actions ? contextEntry.actions : [];
@@ -135,24 +148,25 @@ BarWidget {
     readonly property int contextPinnedIndex: pinnedIndex(contextApp, contextWindow)
     readonly property bool contextIsPinned: contextPinnedIndex >= 0
     readonly property bool contextCanLaunch: !!(contextEntry || (contextApp && contextApp.launch))
+    property string clickCursorKey: ""
+    property string clickCursorAddress: ""
+    property double clickCursorDeadline: 0
+    property string contextGroupKey: ""
     readonly property var pinnedItems: {
         var revision = hyprlandRevision;
         var result = [];
         for (var i = 0; i < pinnedApps.length; i++) {
             var app = pinnedApps[i];
-            var windows = windowsForDescriptor(app, null);
-            if (windows.length === 0) {
-                result.push({
-                    "app": app,
-                    "window": null
-                });
-                continue;
-            }
-            for (var j = 0; j < windows.length; j++) {
-                result.push({
-                    "app": app,
-                    "window": windows[j]
-                });
+            var windows = visibleDescriptorWindows(app, null);
+            var key = "pin:" + app.desktopId + ":" + app.match;
+            if (groupRunningByWorkspace || windows.length === 0 || groupRunningByApp) {
+                result.push({app: app, window: groupRunningByWorkspace ? null : (windows[0] || null),
+                    key: key, windows: groupRunningByWorkspace ? [] : windows,
+                    launchOnly: groupRunningByWorkspace, hasWindows: windowsForDescriptor(app, null).length > 0});
+            } else {
+                for (var j = 0; j < windows.length; j++)
+                    result.push({app: app, window: windows[j], key: key + ":" + normalizedAddress(windows[j]),
+                        windows: [windows[j]], launchOnly: false, hasWindows: true});
             }
         }
         return result;
@@ -169,9 +183,10 @@ BarWidget {
             if (!candidate || !windowClass(candidate))
                 continue;
 
-            if (isPinnedWindow(candidate) || isExcludedWindow(candidate))
+            if ((!groupRunningByWorkspace && isPinnedWindow(candidate)) || isExcludedWindow(candidate))
                 continue;
 
+            if (workspaceIntegrationActive && (windowWorkspaceId(candidate) <= 0 || nativeWorkspaceIds.indexOf(windowWorkspaceId(candidate)) < 0)) continue;
             result.push(candidate);
         }
         if (groupRunningByWorkspace)
@@ -187,8 +202,382 @@ BarWidget {
                 return entry.window;
             });
 
-        return result.slice(0, maxRunningWindows);
+        return result;
     }
+
+    property var tuiIndex: ({windows: {}, entries: {}})
+    function tuiEntryFor(window) {
+        if (!window) return null;
+        var id = tuiIndex.windows[normalizedAddress(window)];
+        return id ? tuiEntryById(id) : null;
+    }
+    function tuiEntryById(id) {
+        var cached = tuiIndex.entries[id];
+        if (!cached) return null;
+        var entry = DesktopEntries.byId(id) || cached;
+        if (entry === cached && cached.lightIcon && Color.foreground.r + Color.foreground.g + Color.foreground.b < 1.5)
+            return Object.assign({}, cached, {icon: cached.lightIcon});
+        return entry;
+    }
+    function scheduleTuiScan() { tuiScanDelay.restart(); }
+    function runTuiScan() {
+        if (tuiProcess.running) { tuiScanDelay.restart(); return; }
+        tuiProcess.stdinEnabled = true;
+        tuiProcess.running = true;
+    }
+    Timer {
+        id: tuiScanDelay
+        interval: 250
+        onTriggered: taskbar.runTuiScan()
+    }
+    Timer {
+        interval: 5000
+        repeat: true
+        running: Hyprland.toplevels.values.some(function(window) {
+            return /^(org\.omarchy\.|TUI\.(tile|float)$)/.test(taskbar.windowClass(window));
+        })
+        onTriggered: taskbar.scheduleTuiScan()
+    }
+    Process {
+        id: tuiProcess
+        command: ["python3", "-B", Qt.resolvedUrl("scripts/tui-identities.py").toString().replace(/^file:\/\//, "")]
+        stdinEnabled: true
+        onStarted: {
+            var windows = Hyprland.toplevels.values.map(function(window) {
+                var ipc = window.lastIpcObject || {};
+                return {key: taskbar.normalizedAddress(window), class: taskbar.windowClass(window), pid: ipc.pid || 0};
+            });
+            var entries = DesktopEntries.applications.values.map(function(entry) {
+                return {id: String(entry.id), name: String(entry.name), icon: String(entry.icon || ""), exec: String(entry.execString || ""), terminal: entry.runInTerminal === true};
+            });
+            write(JSON.stringify({windows: windows, entries: entries}));
+            stdinEnabled = false;
+        }
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var result = JSON.parse(text);
+                    if (result.error) { console.warn("OmaPanel TUI identities:", result.error); return; }
+                    if (JSON.stringify(taskbar.tuiIndex) !== JSON.stringify(result)) taskbar.tuiIndex = result;
+                } catch (error) { console.warn("OmaPanel TUI identities:", error); }
+            }
+        }
+    }
+    onTuiIndexChanged: if (stylizedIcons) scheduleIconScan(false, false)
+
+    function appIdentity(window) {
+        var entry = windowDesktopEntry(window);
+        return entry && entry.id ? normalizeDesktopId(entry.id) : windowClass(window).toLowerCase();
+    }
+
+    function pinForWindow(window) {
+        for (var i = 0; i < pinnedApps.length; i++)
+            if (appMatchesWindow(pinnedApps[i], window)) return pinnedApps[i];
+        return null;
+    }
+
+    readonly property var runningGroups: Groups.build(runningWindows, groupRunningByApp,
+        groupRunningByWorkspace, appIdentity, windowWorkspaceId,
+        function(window) { return descriptorFor(pinForWindow(window), window); }).slice(0, maxRunningWindows)
+
+    function windowsForGroupKey(key) {
+        var groups = pinnedItems.concat(runningGroups);
+        for (var i = 0; i < groups.length; i++)
+            if (groups[i].key === key) return groups[i].windows;
+        return [];
+    }
+
+    function focusChipGroup(chip) {
+        var windows = chip.windowGroup;
+        if (!windows.length || chip.launchOnly) {
+            launchNewWindow(chip.app, null);
+            return;
+        }
+        var cursor = Date.now() <= clickCursorDeadline && clickCursorKey === chip.groupKey
+            ? windows.map(normalizedAddress).indexOf(clickCursorAddress) : -1;
+        var index = Groups.nextIndex(windows.length, indexOfToplevel(windows, activeWindow), cursor);
+        clickCursorKey = chip.groupKey;
+        clickCursorAddress = normalizedAddress(windows[index]);
+        clickCursorDeadline = Date.now() + 750;
+        activateOrLaunch(chip.app, windows[index]);
+    }
+
+    function visibleDescriptorWindows(app, window) {
+        return windowsForDescriptor(app, window).filter(function(candidate) {
+            return !isExcludedWindow(candidate);
+        });
+    }
+
+    readonly property bool stylizedIcons: boolSetting("stylizedIcons", false)
+    property var iconIndex: ({entries: {}})
+    property bool iconRefreshPending: false
+    property bool iconPromptPending: false
+    property bool agentPromptOpen: false
+    property bool agentPromptRequested: false
+    property bool agentPromptReady: false
+    property string agentPromptText: ""
+    property string iconStatus: ""
+    readonly property bool iconWorkInProgress: iconProcess.running || iconRequirementProcess.running
+        || ((stylizedIcons || iconPromptPending) && (iconScanDelay.running || iconRefreshPending || iconPromptPending))
+    function iconApplications() {
+        var entries = DesktopEntries.applications.values || [];
+        var result = [], seen = {};
+        entries.forEach(function(entry) {
+            if (!entry || !entry.id) return;
+            var id = String(entry.id).replace(/\.desktop$/i, "");
+            seen[id] = true;
+            result.push({id: id, name: String(entry.name || id), icon: String(entry.icon || ""),
+                source: resolveIconSource(entry.icon)});
+        });
+        pinnedApps.forEach(function(app) {
+            var id = app.desktopId || app.icon;
+            if (!seen[id]) {
+                seen[id] = true;
+                result.push({id: id, name: app.label, icon: app.icon, source: resolveIconSource(app.icon)});
+            }
+        });
+        var values = Hyprland.toplevels.values || [];
+        values.forEach(function(window) {
+            var id = appIdentity(window);
+            if (!seen[id]) {
+                seen[id] = true;
+                result.push({id: id, name: windowLabel(window), icon: windowIcon(window), source: resolveIconSource(windowIcon(window))});
+            }
+        });
+        return result;
+    }
+
+    function styledIconSource(icon, app, window) {
+        if (!stylizedIcons) return resolveIconSource(icon);
+        var entry = desktopEntryFor(app, window);
+        var id = entry ? String(entry.id).replace(/\.desktop$/i, "")
+            : (app && app.desktopId ? app.desktopId : (window ? appIdentity(window) : icon));
+        var cached = iconIndex.entries ? iconIndex.entries[id] : null;
+        if (!cached || !cached.selected) return resolveIconSource(icon);
+        return cached.selected + "?v=" + cached.fingerprint + (cached.agentSignature || "");
+    }
+
+    function iconIsStyled(app, window, icon) {
+        return stylizedIcons && styledIconSource(icon, app, window) !== resolveIconSource(icon);
+    }
+
+    function scheduleIconScan(refresh, prompt) {
+        iconRefreshPending = iconRefreshPending || refresh;
+        iconPromptPending = iconPromptPending || prompt;
+        iconScanDelay.restart();
+    }
+
+    function runIconScan() {
+        if (iconProcess.running || (!stylizedIcons && !iconPromptPending)) return;
+        var command = ["/bin/sh", Qt.resolvedUrl("scripts/icon-action.sh").toString().replace(/^file:\/\//, ""), "generate", "--notify"];
+        if (iconRefreshPending) command.push("--refresh");
+        if (iconPromptPending) command.push("--prompt");
+        iconRefreshPending = false;
+        iconPromptPending = false;
+        iconProcess.stdinEnabled = true;
+        iconProcess.command = command;
+        iconProcess.running = true;
+    }
+
+    function requestAgentPrompt() {
+        cancelPreview(null);
+        if (iconWorkInProgress) return;
+        agentPromptRequested = true;
+        agentPromptReady = false;
+        agentPromptText = "Checking installed applications…";
+        scheduleIconScan(true, true);
+    }
+
+    function launchIconAgent() { requestIconRequirement("agent"); }
+    function copyIconPrompt() { requestIconRequirement("clipboard"); }
+
+    onStylizedIconsChanged: if (stylizedIcons) scheduleIconScan(true, false)
+    onPinnedAppsChanged: if (stylizedIcons) scheduleIconScan(false, false)
+
+    Timer {
+        id: iconScanDelay
+        interval: 400
+        onTriggered: taskbar.runIconScan()
+    }
+    Timer {
+        interval: 10000
+        running: taskbar.stylizedIcons
+        repeat: true
+        onTriggered: taskbar.scheduleIconScan(false, false)
+    }
+    Process {
+        id: iconProcess
+        stdinEnabled: true
+        onStarted: {
+            write(JSON.stringify(taskbar.iconApplications()));
+            stdinEnabled = false;
+        }
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var result = JSON.parse(text);
+                    if (result.error) {
+                        taskbar.iconStatus = result.error;
+                        return;
+                    }
+                    taskbar.iconIndex = result;
+                    if (!taskbar.agentPromptOpen || result.prompt !== undefined) taskbar.iconStatus = result.errors.length ? result.errors.length + " icon(s) need attention" : (result.agentNote || "");
+                    if (result.prompt !== undefined) {
+                        taskbar.agentPromptText = result.prompt;
+                        taskbar.agentPromptReady = true;
+                    }
+                } catch (error) { taskbar.iconStatus = "Icon generation failed: " + error; }
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: if (text.trim()) console.warn("OmaPanel icons:", text.trim());
+        }
+        onExited: function(code) {
+            if (taskbar.iconRefreshPending || taskbar.iconPromptPending) { iconScanDelay.restart(); return; }
+            if (taskbar.agentPromptRequested) {
+                var ready = code === 0 && taskbar.agentPromptReady;
+                taskbar.agentPromptRequested = false;
+                taskbar.agentPromptReady = false;
+                if (ready && taskbar.settingsPanelOpen) {
+                    taskbar.settingsPanelOpen = false;
+                    Qt.callLater(function() { taskbar.agentPromptOpen = true; });
+                } else if (!ready && !taskbar.iconStatus) taskbar.iconStatus = "Icon generation failed. Try again.";
+            }
+        }
+    }
+    Process { id: iconClipboard }
+    AgentIconPrompt { }
+
+    Connections {
+        target: DesktopEntries.applications
+        function onValuesChanged() { taskbar.scheduleTuiScan(); if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
+    }
+    Connections {
+        target: Hyprland.toplevels
+        function onValuesChanged() { taskbar.scheduleTuiScan(); if (taskbar.stylizedIcons) taskbar.scheduleIconScan(false, false); }
+    }
+
+    function requestIconRequirement(mode) {
+        if (iconRequirementProcess.running) return;
+        iconStatus = "";
+        iconRequirementProcess.mode = mode;
+        iconRequirementProcess.command = ["/bin/sh", Qt.resolvedUrl("scripts/icon-action.sh").toString().replace(/^file:\/\//, ""), mode];
+        iconRequirementProcess.running = true;
+    }
+    Process {
+        id: iconRequirementProcess
+        property string mode: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var result = JSON.parse(text);
+                    if (!result.ok) { taskbar.iconStatus = result.error || "Requirements are missing."; return; }
+                    if (iconRequirementProcess.mode === "clipboard") {
+                        iconClipboard.command = ["wl-copy", "--", taskbar.agentPromptText];
+                        iconClipboard.running = true;
+                    } else {
+                        if (result.note) { taskbar.iconStatus = result.note; }
+                        var prompt = taskbar.agentPromptText;
+                        taskbar.close();
+                        Quickshell.execDetached(["omarchy", "agent", "prompt", prompt]);
+                    }
+                } catch (error) { taskbar.iconStatus = "Could not check icon requirements. Try again."; }
+            }
+        }
+    }
+
+    readonly property bool integrateWorkspaces: boolSetting("integrateWorkspaces", false)
+    readonly property string nativeWorkspaceUrl: Quickshell.env("OMARCHY_PATH")
+        ? "file://" + Quickshell.env("OMARCHY_PATH") + "/shell/plugins/bar/widgets/Workspaces.qml" : ""
+    property var nativeWorkspaceComponent: nativeWorkspaceUrl ? Qt.createComponent(nativeWorkspaceUrl) : null
+    readonly property bool nativeWorkspaceReady: !vertical && nativeWorkspaceProvider.status === Loader.Ready
+        && !!nativeWorkspaceProvider.item && typeof nativeWorkspaceProvider.item.workspaceIds === "function"
+        && !!workspaceRepeater(nativeWorkspaceProvider.item)
+    readonly property bool workspaceIntegrationActive: integrateWorkspaces && groupRunningByWorkspace && nativeWorkspaceReady
+    readonly property var nativeWorkspaceIds: nativeWorkspaceReady ? nativeWorkspaceProvider.item.workspaceIds() : []
+    property bool workspaceChangeBusy: false
+    property var afterWorkspaceChange: null
+    property var queuedWorkspaceChange: null
+
+    function workspaceRepeater(item) {
+        if (!item) return null;
+        if (typeof item.itemAt === "function" && item.model !== undefined && item.delegate !== undefined)
+            return item;
+        var children = item.children || [];
+        for (var i = 0; i < children.length; i++) {
+            var repeater = workspaceRepeater(children[i]);
+            if (repeater) return repeater;
+        }
+        return null;
+    }
+
+    function configureNativeWorkspace(item, id) {
+        var repeater = workspaceRepeater(item);
+        if (!repeater || typeof item.focusWorkspace !== "function" || typeof item.workspaceIds !== "function")
+            return false;
+        repeater.model = [id];
+        item.bar = bar;
+        return true;
+    }
+
+    function requestWorkspaceIntegration(enabled, after) {
+        if (workspaceProcess.running) {
+            queuedWorkspaceChange = {enabled: enabled, after: after || null};
+            return;
+        }
+        if (enabled && (!groupRunningByWorkspace || !nativeWorkspaceReady)) {
+            Quickshell.execDetached(["omarchy", "notification", "send", "Workspace integration unavailable",
+                "The installed workspace widget is incompatible. The standalone switcher has been kept."]);
+            return;
+        }
+        afterWorkspaceChange = after || null;
+        workspaceChangeBusy = true;
+        workspaceProcess.command = ["python3", "-B", Qt.resolvedUrl("scripts/workspace-integration.py").toString().replace(/^file:\/\//, ""), enabled ? "enable" : "disable"];
+        workspaceProcess.running = true;
+    }
+
+    Loader {
+        id: nativeWorkspaceProvider
+        visible: false
+        sourceComponent: taskbar.nativeWorkspaceComponent
+        onStatusChanged: {
+            if (status === Loader.Error && taskbar.integrateWorkspaces)
+                taskbar.requestWorkspaceIntegration(false, null);
+        }
+    }
+    Process {
+        id: workspaceProcess
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var result = JSON.parse(text);
+                    if (result.error) Quickshell.execDetached(["omarchy", "notification", "send",
+                        "Workspace integration failed", result.error]);
+                } catch (error) { console.warn("OmaPanel workspace helper:", error); }
+            }
+        }
+        onExited: function(code) {
+            taskbar.workspaceChangeBusy = false;
+            var after = taskbar.afterWorkspaceChange;
+            taskbar.afterWorkspaceChange = null;
+            if (code === 0 && after) {
+                if (after.reset) taskbar.persistSettings(taskbar.defaultSettings());
+                else taskbar.persistSetting(after.key, after.value);
+            }
+            var queued = taskbar.queuedWorkspaceChange;
+            taskbar.queuedWorkspaceChange = null;
+            if (queued) Qt.callLater(function() { taskbar.requestWorkspaceIntegration(queued.enabled, queued.after); });
+        }
+    }
+    Timer {
+        id: workspaceSync
+        interval: 500
+        onTriggered: {
+            if (workspaceProcess.running) { workspaceSync.restart(); return; }
+            if (taskbar.integrateWorkspaces) taskbar.requestWorkspaceIntegration(taskbar.workspaceIntegrationActive, null);
+        }
+    }
+    onWorkspaceIntegrationActiveChanged: if (integrateWorkspaces) workspaceSync.restart()
 
     function boolSetting(key, fallback) {
         return setting(key, fallback) === true;
@@ -312,6 +701,8 @@ BarWidget {
     }
 
     function appMatchesWindow(app, toplevel) {
+        if (app && app.desktopId && tuiEntryFor(toplevel))
+            return normalizeDesktopId(tuiEntryFor(toplevel).id) === normalizeDesktopId(app.desktopId);
         if (!app || !patternMatches(String(app.match || ""), windowCandidates(toplevel)))
             return false;
 
@@ -345,10 +736,13 @@ BarWidget {
         if (!excludedClasses.trim())
             return false;
 
-        var patterns = excludedClasses.split(",");
+        var patterns = Identity.exclusionPatterns(excludedClasses);
+        var entry = windowDesktopEntry(toplevel);
+        var webappName = (tuiEntryFor(toplevel) || Identity.isWebapp(entry, windowCandidates(toplevel))) && entry ? Identity.normalizedName(entry.name) : "";
         var candidates = windowCandidates(toplevel);
         for (var i = 0; i < patterns.length; i++) {
-            if (patternMatches(patterns[i].trim(), candidates))
+            if ((webappName && Identity.normalizedName(patterns[i]) === webappName)
+                || patternMatches(patterns[i].trim(), candidates))
                 return true;
 
         }
@@ -375,15 +769,16 @@ BarWidget {
     }
 
     function windowDesktopEntry(toplevel) {
+        var tui = tuiEntryFor(toplevel);
+        if (tui) return tui;
         var candidates = windowCandidates(toplevel);
+        var entries = DesktopEntries.applications.values || [];
+        var exact = Identity.matchingEntry(candidates, entries);
+        if (exact) return exact;
         for (var i = 0; i < candidates.length; i++) {
-            if (!isPlausibleAppId(candidates[i]))
-                continue;
-
+            if (!isPlausibleAppId(candidates[i])) continue;
             var entry = DesktopEntries.heuristicLookup(candidates[i]);
-            if (entry)
-                return entry;
-
+            if (entry) return entry;
         }
         return null;
     }
@@ -450,6 +845,23 @@ BarWidget {
         };
     }
 
+    function hideContextApp() {
+        var entry = desktopEntryFor(contextApp, contextWindow);
+        var candidates = windowCandidates(contextWindow);
+        if (!candidates.length && contextApp && contextApp.desktopId)
+            candidates = [contextApp.desktopId];
+        var webapp = tuiEntryFor(contextWindow) || (entry && tuiIndex.entries[entry.id]) || Identity.isWebapp(entry, candidates);
+        var token = webapp && entry && entry.name ? String(entry.name).trim()
+            : (contextApp ? String(contextApp.match || "") : "");
+        if (!token) return;
+        var patterns = Identity.exclusionPatterns(excludedClasses);
+        if (!patterns.some(function(pattern) {
+            return Identity.normalizedName(pattern) === Identity.normalizedName(token);
+        })) persistSetting("excludedClasses", excludedClasses.trim()
+            + (excludedClasses.trim() ? ", " : "") + Identity.exclusionToken(token));
+        close();
+    }
+
     function launchCommandForDesktopId(desktopId) {
         var id = normalizeDesktopId(desktopId);
         if (!id)
@@ -474,7 +886,7 @@ BarWidget {
         return {
             "label": windowLabel(toplevel),
             "match": appClass ? "^" + regexEscape(appClass) + "$" : "",
-            "launch": launchCommandForDesktopId(desktopId),
+            "launch": entry && entry.tui ? entry.launch : launchCommandForDesktopId(desktopId),
             "icon": sanitizeIconName(entry && entry.icon ? entry.icon : windowIcon(toplevel)),
             "desktopId": desktopId
         };
@@ -483,7 +895,7 @@ BarWidget {
     function desktopEntryFor(app, toplevel) {
         var desktopId = normalizeDesktopId(app && app.desktopId ? app.desktopId : "");
         if (desktopId) {
-            var byId = DesktopEntries.byId(desktopId) || DesktopEntries.byId(desktopId + ".desktop");
+            var byId = tuiEntryById(desktopId) || DesktopEntries.byId(desktopId) || DesktopEntries.byId(desktopId + ".desktop");
             if (byId)
                 return byId;
 
@@ -535,7 +947,9 @@ BarWidget {
         return -1;
     }
 
-    function wheelGroup(app, toplevel, pinned) {
+    function wheelGroup(app, toplevel, pinned, chip) {
+        if (chip && (groupRunningByApp || chip.launchOnly))
+            return {key: chip.groupKey, windows: chip.windowGroup};
         if (!toplevel)
             return {
             "key": "",
@@ -571,8 +985,8 @@ BarWidget {
         groupWheelCursorDeadline = 0;
     }
 
-    function cycleWindowGroup(app, toplevel, pinned, delta) {
-        var group = wheelGroup(app, toplevel, pinned);
+    function cycleWindowGroup(app, toplevel, pinned, delta, chip) {
+        var group = wheelGroup(app, toplevel, pinned, chip);
         if (group.windows.length === 0) {
             resetGroupWheel();
             return false;
@@ -667,7 +1081,7 @@ BarWidget {
     function launchNewWindow(app, toplevel) {
         var descriptor = descriptorFor(app, toplevel);
         var entry = desktopEntryFor(descriptor, toplevel);
-        if (entry && bar && bar.shell && bar.shell.appLibrary) {
+        if (entry && !entry.tui && bar && bar.shell && bar.shell.appLibrary) {
             var id = normalizeDesktopId(entry.id || descriptor.desktopId);
             if (id) {
                 bar.shell.appLibrary.launch(id, asPlainUiText(String(entry.name || descriptor.label || id)));
@@ -724,13 +1138,14 @@ BarWidget {
         }
         close();
         if (action === "Focus or Launch") {
-            activateOrLaunch(app, toplevel);
+            if (anchor && anchor.windowGroup !== undefined) focusChipGroup(anchor);
+            else activateOrLaunch(app, toplevel);
         } else if (action === "New Window") {
             launchNewWindow(app, toplevel);
         } else if (action === "Close Window") {
             closeWindow(toplevel);
         } else if (action === "Close All Windows") {
-            var targets = windowsForDescriptor(app, toplevel);
+            var targets = anchor && anchor.windowGroup ? anchor.windowGroup : visibleDescriptorWindows(app, toplevel);
             for (var i = 0; i < targets.length; i++) closeWindow(targets[i])
         }
     }
@@ -740,16 +1155,20 @@ BarWidget {
     }
 
     function openContextMenu(anchor, app, toplevel) {
+        cancelPreview(null);
         settingsPanelOpen = false;
         contextAnchor = anchor;
         contextApp = descriptorFor(app, toplevel);
-        contextWindow = toplevel;
+        contextWindow = anchor && anchor.windowGroup && indexOfToplevel(anchor.windowGroup, activeWindow) >= 0 ? activeWindow : toplevel;
+        contextGroupKey = anchor && anchor.windowGroup && anchor.windowGroup.length ? anchor.groupKey : "";
         contextMenuOpen = true;
     }
 
     function close() {
         contextMenuOpen = false;
         settingsPanelOpen = false;
+        agentPromptOpen = false;
+        agentPromptRequested = false;
         cancelPreview(null);
     }
 
@@ -757,22 +1176,30 @@ BarWidget {
         previewTimer.stop();
         pendingPreviewAnchor = null;
         pendingPreviewToplevel = null;
+        pendingPreviewGroupKey = "";
     }
 
     function commitPreview(anchor, toplevel) {
+        if (opened || !showWindowPreviews || !anchor || !toplevel) {
+            cancelPreview(null);
+            return;
+        }
+        var key = pendingPreviewGroupKey;
         clearPendingPreview();
         previewHideTimer.stop();
+        previewGroupKey = key;
         previewAnchor = anchor;
         previewToplevel = toplevel;
     }
 
     function requestPreview(anchor, toplevel) {
-        if (!showWindowPreviews || !toplevel) {
+        if (opened || !showWindowPreviews || !toplevel) {
             cancelPreview(null);
             return ;
         }
         pendingPreviewAnchor = anchor;
         pendingPreviewToplevel = toplevel;
+        pendingPreviewGroupKey = anchor.groupKey;
         if (previewDelay <= 0 || previewToplevel !== null || previewHideTimer.running)
             commitPreview(anchor, toplevel);
         else
@@ -786,6 +1213,7 @@ BarWidget {
 
         if (!toplevel || previewToplevel === toplevel) {
             previewToplevel = null;
+            previewGroupKey = "";
             previewAnchor = null;
         }
     }
@@ -810,7 +1238,7 @@ BarWidget {
         if (chip.bar)
             chip.bar.hideTooltip(chip);
         previewHoverCount = Math.max(0, previewHoverCount - 1);
-        if (previewHoverCount === 0)
+        if (previewHoverCount === 0 && !previewPointerHovered)
             previewHideTimer.restart();
     }
 
@@ -818,23 +1246,24 @@ BarWidget {
         if (!toplevel)
             return false;
 
-        if (runningWindows.indexOf(toplevel) >= 0)
-            return true;
-
-        for (var i = 0; i < pinnedItems.length; i++) {
-            if (pinnedItems[i].window === toplevel)
-                return true;
-
-        }
-        return false;
+        var values = Hyprland.toplevels.values || [];
+        return values.indexOf(toplevel) >= 0 && !isExcludedWindow(toplevel);
     }
 
     function openSettingsPanel() {
+        cancelPreview(null);
         contextMenuOpen = false;
         Qt.callLater(function() {
             settingsPanelOpen = true;
         });
     }
+
+    function holdPreview() { previewHideTimer.stop(); }
+    function releasePreview() {
+        if (previewHoverCount === 0) previewHideTimer.restart();
+    }
+
+    function open() { openSettingsPanel(); }
 
     function persistSettings(nextSettings) {
         if (!bar || !bar.shell || typeof bar.shell.updateEntryInline !== "function")
@@ -845,6 +1274,14 @@ BarWidget {
     }
 
     function persistSetting(key, value) {
+        if (key === "integrateWorkspaces") {
+            requestWorkspaceIntegration(value === true, null);
+            return;
+        }
+        if (key === "groupRunningByWorkspace" && value === false && integrateWorkspaces) {
+            requestWorkspaceIntegration(false, {key: key, value: value});
+            return;
+        }
         var nextSettings = Object.assign({
         }, settings || {
         });
@@ -862,6 +1299,10 @@ BarWidget {
     }
 
     function resetSettings() {
+        if (integrateWorkspaces) {
+            requestWorkspaceIntegration(false, {reset: true});
+            return;
+        }
         persistSettings(defaultSettings());
     }
 
@@ -941,13 +1382,14 @@ BarWidget {
         for (var i = 0; i < targets.length; i++) closeWindow(targets[i])
     }
 
-    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0)
+    visible: !vertical && (pinnedApps.length > 0 || runningWindows.length > 0 || workspaceIntegrationActive)
     implicitWidth: visible ? chrome.implicitWidth : 0
     implicitHeight: barSize
 
     Connections {
         function onRawEvent(event) {
             taskbar.hyprlandRevision++;
+            if (/^(openwindow|closewindow|windowtitle)/.test(event.name)) taskbar.scheduleTuiScan();
             if (taskbar.previewToplevel && !taskbar.previewToplevelAlive(taskbar.previewToplevel))
                 taskbar.cancelPreview(taskbar.previewToplevel);
         }
@@ -970,7 +1412,9 @@ BarWidget {
         id: previewHideTimer
 
         interval: 160
-        onTriggered: taskbar.cancelPreview(null)
+        onTriggered: {
+            if (!taskbar.previewPointerHovered && taskbar.previewHoverCount === 0) taskbar.cancelPreview(null);
+        }
     }
 
     ContextMenu {
@@ -1121,6 +1565,11 @@ BarWidget {
         required property var appWindow
         required property bool pinned
 
+        property var windowGroup: appWindow ? [appWindow] : []
+        property string groupKey: ""
+        property bool launchOnly: false
+        property bool hasWindows: appWindow !== null
+
         property string displayLabel: ""
         property string iconName: ""
         property bool pointerHovered: false
@@ -1139,6 +1588,8 @@ BarWidget {
             if (iconName)
                 return iconName;
 
+            var tui = taskbar && app ? taskbar.tuiEntryById(app.desktopId) : null;
+            if (tui && tui.icon) return String(tui.icon);
             if (app && app.icon)
                 return String(app.icon);
 
@@ -1151,9 +1602,9 @@ BarWidget {
             if (!taskbar || !appWindow)
                 return false;
 
-            return taskbar.activeWindow === appWindow;
+            return taskbar.indexOfToplevel(windowGroup, taskbar.activeWindow) >= 0;
         }
-        readonly property bool isClosedPinned: pinned && appWindow === null
+        readonly property bool isClosedPinned: pinned && !hasWindows
         readonly property bool effectiveShowIcons: {
             if (!taskbar)
                 return true;
@@ -1225,7 +1676,7 @@ BarWidget {
         }
 
         function handleBarWheel(delta) {
-            return ready ? taskbar.cycleWindowGroup(app, appWindow, pinned, delta) : false;
+            return ready ? taskbar.cycleWindowGroup(app, appWindow, pinned, delta, chip) : false;
         }
 
         function setPointerHovered(hovered) {
@@ -1250,7 +1701,7 @@ BarWidget {
             var verticalPad = Style.space((ready ? taskbar.itemVerticalPadding : 12) * 2);
             return Math.min(Math.max(1, barHeight - padTop - padBottom), contentHeight + verticalPad);
         }
-        tooltipText: (ready ? taskbar.asPlainUiText(resolvedLabel) : resolvedLabel) + (pinned && appWindow === null ? "\nClick to open" : "\nClick to focus")
+        tooltipText: (ready ? taskbar.asPlainUiText(resolvedLabel) : resolvedLabel) + (launchOnly || (pinned && appWindow === null) ? "\nClick to open" : (windowGroup.length > 1 ? "\nClick to cycle windows" : "\nClick to focus"))
 
 
         TextMetrics {
@@ -1291,18 +1742,20 @@ BarWidget {
                     id: appIcon
 
                     anchors.fill: parent
-                    source: chip.ready ? taskbar.resolveIconSource(chip.resolvedIconName) : ""
+                    source: chip.ready ? taskbar.styledIconSource(chip.resolvedIconName, chip.app, chip.appWindow) : ""
                     sourceSize.width: Math.round(width * Screen.devicePixelRatio)
                     sourceSize.height: Math.round(height * Screen.devicePixelRatio)
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     smooth: true
                     mipmap: true
-                    layer.enabled: chip.ready && taskbar.invertIconColors
+                    readonly property bool styled: chip.ready && taskbar.iconIsStyled(chip.app, chip.appWindow, chip.resolvedIconName)
+                    layer.enabled: styled || (chip.ready && taskbar.invertIconColors)
                     layer.smooth: true
                     layer.effect: ShaderEffect {
                         property variant source
-                        fragmentShader: Qt.resolvedUrl("shaders/invert.frag.qsb")
+                        property color tintColor: chip.foregroundColor
+                        fragmentShader: appIcon.styled ? Qt.resolvedUrl("shaders/tint.frag.qsb") : Qt.resolvedUrl("shaders/invert.frag.qsb")
                     }
 
                 }
@@ -1406,81 +1859,93 @@ BarWidget {
 
     component TaskbarChrome: Item {
         id: chrome
-
         anchors.centerIn: parent
-        implicitWidth: content.implicitWidth + (taskbar ? taskbar.barPadHorizontal : 0) * 2
-        implicitHeight: taskbar ? taskbar.panelHeight : content.implicitHeight
+        implicitWidth: content.implicitWidth + taskbar.barPadHorizontal * 2
+        implicitHeight: taskbar.panelHeight
         width: implicitWidth
         height: implicitHeight
-        readonly property bool trimEdges: !!(taskbar && taskbar.trimEdgeItemGaps)
-        readonly property int pinnedCount: taskbar && taskbar.pinnedItems ? taskbar.pinnedItems.length : 0
-        readonly property int runningCount: taskbar && taskbar.runningWindows ? taskbar.runningWindows.length : 0
+        readonly property bool trimEdges: taskbar.trimEdgeItemGaps
+        readonly property int pinnedCount: taskbar.pinnedItems.length
+        readonly property int runningCount: taskbar.runningGroups.length
 
         Rectangle {
             anchors.fill: parent
-            radius: taskbar ? taskbar.barCornerRadius : 0
-            color: taskbar ? taskbar.barBackgroundColor : "transparent"
-            visible: taskbar && taskbar.barBackgroundEnabled
+            radius: taskbar.barCornerRadius
+            color: taskbar.barBackgroundColor
+            visible: taskbar.barBackgroundEnabled
         }
 
         Row {
             id: content
-
-            x: taskbar ? taskbar.barPadHorizontal : 0
-            y: taskbar ? taskbar.barPadTop : 0
+            x: taskbar.barPadHorizontal
+            y: taskbar.barPadTop
             spacing: 0
-
             TaskbarSeparator {
-                visible: !!(taskbar && taskbar.leadingSeparator && taskbar.pinnedApps && taskbar.pinnedApps.length > 0)
+                visible: taskbar.leadingSeparator && chrome.pinnedCount > 0
             }
-
             Repeater {
-                model: taskbar ? taskbar.pinnedItems : []
-
-                AppChip {
+                model: taskbar.pinnedItems.length
+                Item {
+                    id: pinDelegate
                     required property int index
-                    required property var modelData
-
-                    app: modelData && modelData.app ? modelData.app : null
-                    appWindow: modelData ? modelData.window : null
-                    pinned: true
-                    includeLeadingHitPadding: !chrome.trimEdges || index > 0
-                    includeTrailingHitPadding: !chrome.trimEdges || index < chrome.pinnedCount - 1 || chrome.runningCount > 0
-                }
-
-            }
-
-            TaskbarSeparator {
-                visible: !!(taskbar && taskbar.sectionSeparator && taskbar.pinnedApps && taskbar.pinnedApps.length > 0 && taskbar.runningWindows && taskbar.runningWindows.length > 0)
-            }
-
-            Repeater {
-                model: taskbar ? taskbar.runningWindows : []
-
-                Row {
-                    required property int index
-                    required property var modelData
-
-                    spacing: 0
-
-                    TaskbarSeparator {
-                        visible: !!(taskbar && taskbar.startsWorkspaceGroup(parent.index, parent.modelData))
-                    }
-
+                    readonly property var entry: taskbar.pinnedItems[index]
+                    implicitWidth: pinChip.width
+                    implicitHeight: pinChip.height
                     AppChip {
-                        app: null
-                        appWindow: parent.modelData
-                        pinned: false
-                        includeLeadingHitPadding: !chrome.trimEdges || parent.index > 0 || chrome.pinnedCount > 0
-                        includeTrailingHitPadding: !chrome.trimEdges || parent.index < chrome.runningCount - 1
+                        id: pinChip
+                        app: pinDelegate.entry.app
+                        appWindow: pinDelegate.entry.window
+                        windowGroup: pinDelegate.entry.windows
+                        groupKey: pinDelegate.entry.key
+                        launchOnly: pinDelegate.entry.launchOnly
+                        hasWindows: pinDelegate.entry.hasWindows
+                        pinned: true
+                        includeLeadingHitPadding: !chrome.trimEdges || pinDelegate.index > 0
+                        includeTrailingHitPadding: !chrome.trimEdges || pinDelegate.index < chrome.pinnedCount - 1 || chrome.runningCount > 0
                     }
-
                 }
-
             }
-
+            TaskbarSeparator {
+                visible: taskbar.sectionSeparator && chrome.pinnedCount > 0 && (chrome.runningCount > 0 || taskbar.workspaceIntegrationActive)
+            }
+            Repeater {
+                model: taskbar.workspaceIntegrationActive ? 0 : taskbar.runningGroups.length
+                Row {
+                    id: runningDelegate
+                    required property int index
+                    readonly property var entry: taskbar.runningGroups[index]
+                    spacing: 0
+                    TaskbarSeparator {
+                        visible: taskbar.groupRunningByWorkspace && runningDelegate.index > 0
+                            && runningDelegate.entry.workspace !== taskbar.runningGroups[runningDelegate.index - 1].workspace
+                    }
+                    AppChip {
+                        app: runningDelegate.entry.app
+                        appWindow: runningDelegate.entry.window
+                        windowGroup: runningDelegate.entry.windows
+                        groupKey: runningDelegate.entry.key
+                        hasWindows: true
+                        pinned: false
+                        includeLeadingHitPadding: !chrome.trimEdges || runningDelegate.index > 0 || chrome.pinnedCount > 0
+                        includeTrailingHitPadding: !chrome.trimEdges || runningDelegate.index < chrome.runningCount - 1
+                    }
+                }
+            }
+            Repeater {
+                model: taskbar.workspaceIntegrationActive ? taskbar.nativeWorkspaceIds.length : 0
+                Row {
+                    id: workspaceDelegate
+                    required property int index
+                    spacing: 0
+                    TaskbarSeparator {
+                        visible: taskbar.sectionSeparator && workspaceDelegate.index > 0
+                    }
+                    WorkspaceLane {
+                        workspaceId: taskbar.nativeWorkspaceIds[workspaceDelegate.index]
+                    }
+                }
+            }
         }
-
     }
 
     component ContextMenu: PopupCard {
@@ -1548,10 +2013,24 @@ BarWidget {
                         onClicked: taskbar.openSettingsPanel()
                     }
 
+                    Button {
+                        id: contextHideButton
+                        anchors.right: contextSettingsButton.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconText: "\uf070"
+                        foreground: taskbar.bar ? taskbar.bar.barForeground : Color.foreground
+                        accent: Color.accent
+                        fontFamily: taskbar.bar ? taskbar.bar.fontFamily : Style.font.family
+                        horizontalPadding: Style.space(9)
+                        verticalPadding: Style.space(6)
+                        tooltipText: "Hide running windows of this app"
+                        onClicked: taskbar.hideContextApp()
+                    }
+
                     Column {
                         anchors.left: contextIcon.right
                         anchors.leftMargin: Style.space(10)
-                        anchors.right: contextSettingsButton.left
+                        anchors.right: contextHideButton.left
                         anchors.rightMargin: Style.space(8)
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.space(2)
@@ -1588,14 +2067,22 @@ BarWidget {
                 Repeater {
                     model: taskbar && taskbar.contextWindows ? taskbar.contextWindows : []
 
-                    MenuRow {
-                        required property var modelData
-
-                        text: taskbar.windowTitle(modelData) || taskbar.windowLabel(modelData)
-                        iconText: taskbar.activeWindow === modelData ? "\uf111" : ""
-                        onTriggered: {
-                            taskbar.close();
-                            taskbar.activateOrLaunch(null, modelData);
+                    Item {
+                        id: contextWindowRow
+                        required property int index
+                        width: parent.width
+                        implicitHeight: windowRow.implicitHeight
+                        readonly property var window: taskbar.contextWindows[index] || null
+                        MenuRow {
+                            id: windowRow
+                            width: parent.width
+                            text: taskbar.windowTitle(contextWindowRow.window) || taskbar.windowLabel(contextWindowRow.window)
+                            iconText: taskbar.sameToplevel(taskbar.activeWindow, contextWindowRow.window) ? "\uf111" : ""
+                            onTriggered: {
+                                var target = contextWindowRow.window;
+                                taskbar.close();
+                                taskbar.activateOrLaunch(null, target);
+                            }
                         }
                     }
 
@@ -1620,12 +2107,19 @@ BarWidget {
                 Repeater {
                     model: taskbar && taskbar.contextActions ? taskbar.contextActions : []
 
-                    MenuRow {
-                        required property var modelData
-
-                        text: taskbar.asPlainUiText(String(modelData.name || modelData.id || "Application Action"))
-                        iconText: "\uf144"
-                        onTriggered: taskbar.executeDesktopAction(modelData)
+                    Item {
+                        id: contextActionRow
+                        required property int index
+                        width: parent.width
+                        implicitHeight: actionRow.implicitHeight
+                        readonly property var action: taskbar.contextActions[index] || null
+                        MenuRow {
+                            id: actionRow
+                            width: parent.width
+                            text: taskbar.asPlainUiText(String(contextActionRow.action ? contextActionRow.action.name || contextActionRow.action.id : ""))
+                            iconText: "\uf144"
+                            onTriggered: taskbar.executeDesktopAction(contextActionRow.action)
+                        }
                     }
 
                 }
@@ -1698,119 +2192,254 @@ BarWidget {
 
     component WindowPreview: PopupCard {
         id: previewCard
-
-        anchorItem: {
-            if (!taskbar)
-                return null;
-
-            return taskbar.previewAnchor || taskbar;
-        }
+        anchorItem: taskbar.previewAnchor || taskbar
         owner: taskbar
-        bar: taskbar ? taskbar.bar : null
-        open: !!(taskbar && taskbar.showWindowPreviews && taskbar.previewToplevel !== null && taskbar.previewAnchor !== null)
+        bar: taskbar.bar
+        open: !taskbar.opened && taskbar.showWindowPreviews && taskbar.previewWindows.length > 0 && taskbar.previewAnchor !== null
         triggerMode: "hover"
-        onAnchorItemChanged: {
-            if (!previewCard.open)
-                return ;
-
-            Qt.callLater(function() {
-                if (previewCard.open)
-                    previewCard.anchor.updateAnchor();
-            });
-        }
         padding: Style.space(8)
-        readonly property int thumbnailHeight: {
-            var fallback = Style.space(taskbar ? taskbar.previewHeight : 220);
-            if (!taskbar || !taskbar.previewAutoHeight)
-                return fallback;
-
-            var size = taskbar.windowPixelSize(taskbar.previewToplevel);
-            if (!size || !(size.width > 0 && size.height > 0))
-                return fallback;
-
-            var scaled = Math.round(Style.space(taskbar.previewWidth) * size.height / size.width);
-            return Math.max(Style.space(100), Math.min(Style.space(480), scaled));
+        contentWidth: fittedContentWidth(Style.space(taskbar.previewWidth) * taskbar.previewWindows.length
+            + Style.space(8) * Math.max(0, taskbar.previewWindows.length - 1))
+        contentHeight: fittedContentHeight(tiles.implicitHeight + Style.space(12), Style.space(540))
+        onContainsMouseChanged: {
+            taskbar.previewPointerHovered = containsMouse;
+            if (containsMouse) taskbar.holdPreview();
+            else taskbar.releasePreview();
         }
-        readonly property real qualityScale: {
-            var quality = taskbar ? taskbar.previewQuality : 100;
-            return Math.max(0.1, Math.min(1, quality / 100));
-        }
-        contentWidth: previewCard.fittedContentWidth(Style.space(taskbar ? taskbar.previewWidth : 320))
-        contentHeight: previewCard.fittedContentHeight(previewCard.thumbnailHeight + Style.space(28), Style.space(480))
-
-        Item {
+        Flickable {
             anchors.fill: parent
-
-            Item {
-                id: previewFrame
-
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: previewTitle.top
-                anchors.bottomMargin: Style.space(7)
-                clip: true
-
-                Text {
-                    anchors.centerIn: parent
-                    visible: !previewView.hasContent
-                    text: taskbar.previewToplevel ? String(taskbar.windowLabel(taskbar.previewToplevel) || "?").charAt(0).toUpperCase() : ""
-                    textFormat: Text.PlainText
-                    color: taskbar.bar ? taskbar.bar.barForeground : Color.foreground
-                    font.family: taskbar.bar ? taskbar.bar.fontFamily : Style.font.family
-                    font.pixelSize: Style.font.title
-                    opacity: 0.5
-                }
-
-                ScreencopyView {
-                    id: previewView
-
-                    captureSource: taskbar.previewToplevel ? taskbar.previewToplevel.wayland : null
-                    live: previewCard.open
-                    paintCursor: false
-                    visible: hasContent && sourceSize.width > 0 && sourceSize.height > 0
-                    width: previewView.captureWidth
-                    height: previewView.captureHeight
-                    readonly property real fitScale: {
-                        if (sourceSize.width <= 0 || sourceSize.height <= 0)
-                            return 1;
-
-                        return Math.min(previewFrame.width / sourceSize.width, previewFrame.height / sourceSize.height);
+            contentWidth: tiles.implicitWidth
+            contentHeight: tiles.implicitHeight
+            clip: true
+            flickableDirection: Flickable.HorizontalFlick
+            boundsBehavior: Flickable.StopAtBounds
+            Row {
+                id: tiles
+                spacing: Style.space(8)
+                Repeater {
+                    model: taskbar.previewWindows.length
+                    Item {
+                        id: tileDelegate
+                        required property int index
+                        implicitWidth: tile.width
+                        implicitHeight: tile.height
+                        WindowThumbnail {
+                            id: tile
+                            window: taskbar.previewWindows[tileDelegate.index] || null
+                            live: previewCard.open
+                        }
                     }
-                    readonly property int captureWidth: Math.max(Math.round(sourceSize.width * fitScale), Math.round(sourceSize.width * previewCard.qualityScale))
-                    readonly property int captureHeight: Math.max(Math.round(sourceSize.height * fitScale), Math.round(sourceSize.height * previewCard.qualityScale))
-                    readonly property real drawScale: captureWidth > 0 ? Math.min(previewFrame.width / captureWidth, previewFrame.height / captureHeight) : 1
-                    x: (previewFrame.width - captureWidth * drawScale) / 2
-                    y: (previewFrame.height - captureHeight * drawScale) / 2
-                    transformOrigin: Item.TopLeft
-                    transform: Scale {
-                        xScale: previewView.drawScale
-                        yScale: previewView.drawScale
-                    }
-                    layer.enabled: visible
-                    layer.mipmap: true
-                    layer.smooth: true
                 }
-
             }
+            QQC.ScrollBar.horizontal: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
+        }
+    }
 
+    component WindowThumbnail: Item {
+        id: thumbnail
+        required property var window
+        property bool live: false
+        width: Style.space(taskbar.previewWidth)
+        height: thumbnailHeight + footer.height
+        readonly property int workspaceId: {
+            var revision = taskbar.hyprlandRevision;
+            return taskbar.windowWorkspaceId(window);
+        }
+        readonly property int thumbnailHeight: {
+            var fallback = Style.space(taskbar.previewHeight);
+            var size = taskbar.windowPixelSize(window);
+            if (!taskbar.previewAutoHeight || !(size.width > 0 && size.height > 0)) return fallback;
+            return Math.max(Style.space(100), Math.min(Style.space(480), Math.round(width * size.height / size.width)));
+        }
+        Rectangle {
+            anchors.fill: parent
+            color: mouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
+            radius: Style.cornerRadius
+        }
+        Item {
+            id: frame
+            width: parent.width
+            height: thumbnail.thumbnailHeight
+            clip: true
             Text {
-                id: previewTitle
-
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                text: taskbar.previewToplevel ? taskbar.asPlainUiText(taskbar.windowTitle(taskbar.previewToplevel) || taskbar.windowLabel(taskbar.previewToplevel)) : ""
+                anchors.centerIn: parent
+                visible: !view.hasContent
+                text: thumbnail.window ? taskbar.windowLabel(thumbnail.window) : "Window closed"
                 textFormat: Text.PlainText
-                color: taskbar.bar ? taskbar.bar.barForeground : Color.foreground
-                font.family: taskbar.bar ? taskbar.bar.fontFamily : Style.font.family
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+            }
+            ScreencopyView {
+                id: view
+                captureSource: thumbnail.window ? thumbnail.window.wayland : null
+                live: thumbnail.live
+                paintCursor: false
+                visible: hasContent && sourceSize.width > 0 && sourceSize.height > 0
+                readonly property real fitScale: sourceSize.width > 0 && sourceSize.height > 0
+                    ? Math.min(frame.width / sourceSize.width, frame.height / sourceSize.height) : 1
+                readonly property real captureScale: Math.max(fitScale, taskbar.previewQuality / 100)
+                width: Math.round(sourceSize.width * captureScale)
+                height: Math.round(sourceSize.height * captureScale)
+                readonly property real drawScale: width > 0 ? Math.min(frame.width / width, frame.height / height) : 1
+                x: (frame.width - width * drawScale) / 2
+                y: (frame.height - height * drawScale) / 2
+                transformOrigin: Item.TopLeft
+                transform: Scale { xScale: view.drawScale; yScale: view.drawScale }
+                layer.enabled: visible
+                layer.mipmap: true
+                layer.smooth: true
+            }
+        }
+        Item {
+            id: footer
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: Math.max(Style.space(28), workspaceNumber.visible ? workspaceNumber.height : 0)
+            WidgetButton {
+                id: workspaceNumber
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !taskbar.groupRunningByWorkspace && !!thumbnail.window
+                bar: taskbar.bar
+                text: thumbnail.workspaceId === 10 ? "0" : String(thumbnail.workspaceId)
+                horizontalMargin: 6
+                verticalPadding: 6
+                fixedWidth: Style.space(20)
+                fixedHeight: taskbar.barSize
+                interactive: false
+                pressable: false
+            }
+            Text {
+                anchors.left: workspaceNumber.visible ? workspaceNumber.right : parent.left
+                anchors.leftMargin: workspaceNumber.visible ? Style.space(4) : 0
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: thumbnail.window ? taskbar.windowTitle(thumbnail.window) || taskbar.windowLabel(thumbnail.window) : ""
+                textFormat: Text.PlainText
+                color: Color.foreground
+                font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 elide: Text.ElideRight
                 horizontalAlignment: Text.AlignHCenter
             }
-
         }
+        MouseArea {
+            id: mouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                var target = thumbnail.window;
+                taskbar.cancelPreview(null);
+                if (target) taskbar.activateOrLaunch(null, target);
+            }
+        }
+    }
 
+    component AgentIconPrompt: KeyboardPanel {
+        id: agentDialog
+        anchorItem: taskbar.contextAnchor || taskbar
+        owner: taskbar
+        bar: taskbar.bar
+        open: taskbar.agentPromptOpen
+        padding: Style.space(12)
+        contentWidth: fittedContentWidth(Style.space(560))
+        contentHeight: fittedContentHeight(Style.space(460))
+        focusTarget: promptText
+        Column {
+            anchors.fill: parent
+            spacing: Style.space(12)
+            Text {
+                id: heading
+                text: "Generate monochrome icons"
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.subtitle
+                font.bold: true
+            }
+            Text {
+                id: requirementStatus
+                width: parent.width
+                visible: taskbar.iconStatus !== ""
+                text: taskbar.iconStatus
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+            }
+            Flickable {
+                width: parent.width
+                height: Math.max(80, parent.height - buttons.height - heading.height
+                    - (requirementStatus.visible ? requirementStatus.height + parent.spacing : 0) - parent.spacing * 2)
+                contentWidth: width
+                contentHeight: promptText.implicitHeight
+                clip: true
+                TextEdit {
+                    id: promptText
+                    width: parent.width
+                    text: taskbar.agentPromptText
+                    textFormat: TextEdit.PlainText
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.Wrap
+                    color: Color.popups.text
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    Keys.onEscapePressed: taskbar.close()
+                }
+            }
+            Row {
+                id: buttons
+                spacing: Style.space(8)
+                Button {
+                    text: "Run with default agent"
+                    enabled: !taskbar.iconWorkInProgress && taskbar.agentPromptText !== "Checking installed applications…"
+                    onClicked: taskbar.launchIconAgent()
+                }
+                Button {
+                    text: "Copy prompt"
+                    enabled: !taskbar.iconWorkInProgress && taskbar.agentPromptText !== "Checking installed applications…"
+                    onClicked: taskbar.copyIconPrompt()
+                }
+                Button { text: "Close"; onClicked: taskbar.close() }
+            }
+        }
+    }
+
+    component WorkspaceLane: Row {
+        id: lane
+        required property int workspaceId
+        readonly property var groups: taskbar.runningGroups.filter(function(group) { return group.workspace === lane.workspaceId; })
+        spacing: 0
+        Loader {
+            sourceComponent: taskbar.nativeWorkspaceComponent
+            onLoaded: {
+                if (!taskbar.configureNativeWorkspace(item, lane.workspaceId))
+                    taskbar.requestWorkspaceIntegration(false, null);
+            }
+        }
+        Repeater {
+            model: lane.groups.length
+            Item {
+                id: groupDelegate
+                required property int index
+                readonly property var group: lane.groups[index]
+                implicitWidth: chip.width
+                implicitHeight: chip.height
+                AppChip {
+                    id: chip
+                    app: groupDelegate.group.app
+                    appWindow: groupDelegate.group.window
+                    windowGroup: groupDelegate.group.windows
+                    groupKey: groupDelegate.group.key
+                    hasWindows: true
+                    pinned: false
+                }
+            }
+        }
     }
 
     component SettingToggle: Toggle {
@@ -1828,6 +2457,154 @@ BarWidget {
         accent: Color.accent
         fontFamily: host.contentFontFamily
         onClicked: host.change(settingKey, !checked)
+    }
+
+    component IconGeneration: Column {
+        id: generation
+        required property var host
+        readonly property var worker: host.owner
+        width: parent ? parent.width : 0
+        spacing: Style.space(8)
+
+        BorderSurface {
+            id: generationBox
+            width: parent.width
+            implicitHeight: rows.height + borderTop + borderBottom
+            color: Style.normalFillFor(generation.host.contentForeground, Color.accent)
+            radius: Style.cornerRadius
+            borderSpec: Border.controlSpec(stylizedToggle.activeFocus ? "focus" : "normal",
+                generation.host.contentForeground, Color.accent)
+            Column {
+                id: rows
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: generationBox.borderLeft
+                anchors.rightMargin: generationBox.borderRight
+                anchors.topMargin: generationBox.borderTop
+                SettingToggle {
+                    id: stylizedToggle
+                    host: generation.host
+                    settingKey: "stylizedIcons"
+                    settingLabel: "Stylized icons"
+                    settingDescription: "Theme-colored monochrome symbols; missing icons are generated locally."
+                    color: "transparent"
+                    borderSpec: Border.none()
+                }
+                Item {
+                    width: parent.width
+                    implicitHeight: Math.max(agentTitle.implicitHeight, agentControl.height) + Style.spacing.huge
+                    Row {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Style.spacing.rowPaddingX
+                        anchors.rightMargin: Style.spacing.rowPaddingX
+                        spacing: Style.spacing.rowPaddingX
+                        Text {
+                            id: agentTitle
+                            width: parent.width - agentControl.width - parent.spacing
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Generate icons with default Agent"
+                            textFormat: Text.PlainText
+                            color: generation.host.contentForeground
+                            font.family: generation.host.contentFontFamily
+                            font.pixelSize: Style.font.subtitle
+                            font.bold: true
+                            wrapMode: Text.WordWrap
+                        }
+                        IconGenerationControl {
+                            id: agentControl
+                            width: implicitWidth
+                            height: implicitHeight
+                            anchors.verticalCenter: parent.verticalCenter
+                            worker: generation.worker
+                            foreground: generation.host.contentForeground
+                            fontFamily: generation.host.contentFontFamily
+                        }
+                    }
+                }
+            }
+        }
+        Text {
+            width: parent.width
+            visible: !!generation.worker && generation.worker.iconStatus !== ""
+            text: generation.worker ? generation.worker.iconStatus : ""
+            textFormat: Text.PlainText
+            color: generation.host.contentForeground
+            font.family: generation.host.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    component IconGenerationControl: Item {
+        id: control
+        required property var worker
+        required property color foreground
+        required property string fontFamily
+        readonly property bool busy: !!worker && worker.iconWorkInProgress
+        readonly property var tooltipBorder: Border.localOrSurfaceSpec("tooltip", "border",
+            Color.tooltip.border, Color.tooltip.border, Math.max(1, Style.normalBorderWidth))
+        implicitWidth: alignmentGuide.implicitWidth
+        implicitHeight: alignmentGuide.implicitHeight
+        ToggleSwitch { id: alignmentGuide; visible: false; interactive: false }
+
+        Button {
+            anchors.fill: parent
+            visible: !control.busy
+            iconText: "\udb81\udea9"
+            bordered: true
+            focusable: true
+            foreground: control.foreground
+            fontFamily: control.fontFamily
+            tooltipText: "Generate icons with default Agent"
+            onClicked: if (!control.busy) control.worker.requestAgentPrompt()
+        }
+        Rectangle {
+            anchors.fill: parent
+            visible: control.busy
+            color: Style.normalFillFor(control.foreground, Color.accent)
+            radius: Style.cornerRadius
+            Text {
+                anchors.centerIn: parent
+                text: "\udb82\udd96"
+                textFormat: Text.PlainText
+                color: control.foreground
+                font.family: control.fontFamily
+                font.pixelSize: Style.font.icon
+                RotationAnimation on rotation {
+                    running: control.busy && control.visible
+                    from: 0
+                    to: 360
+                    duration: 900
+                    loops: Animation.Infinite
+                }
+            }
+            HoverHandler { id: busyHover }
+        }
+        QQC.ToolTip {
+            visible: control.busy && busyHover.hovered
+            text: "Generating stylized icons…"
+            delay: 400
+            padding: 0
+            background: BorderSurface {
+                color: Color.tooltip.background
+                borderSpec: control.tooltipBorder
+                radius: 0
+            }
+            contentItem: Text {
+                text: "Generating stylized icons…"
+                textFormat: Text.PlainText
+                color: Color.tooltip.text
+                font.family: control.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                leftPadding: Border.left(control.tooltipBorder) + Style.spacing.controlPaddingX
+                rightPadding: Border.right(control.tooltipBorder) + Style.spacing.controlPaddingX
+                topPadding: Border.top(control.tooltipBorder) + Style.spacing.controlPaddingY
+                bottomPadding: Border.bottom(control.tooltipBorder) + Style.spacing.controlPaddingY
+            }
+        }
     }
 
     component SettingDropdown: Dropdown {
@@ -1935,6 +2712,7 @@ BarWidget {
         required property string settingLabel
         property string fallbackValue: ""
         property string placeholder: ""
+        property string settingDescription: ""
 
         width: parent ? parent.width : 0
         spacing: Style.space(5)
@@ -1946,6 +2724,17 @@ BarWidget {
             font.family: host.contentFontFamily
             font.pixelSize: Style.font.caption
             font.bold: true
+        }
+
+        Text {
+            width: parent.width
+            visible: parent.settingDescription !== ""
+            text: parent.settingDescription
+            textFormat: Text.PlainText
+            color: Util.alpha(host.contentForeground, 0.65)
+            font.family: host.contentFontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
         }
 
         TextField {
@@ -2083,14 +2872,31 @@ BarWidget {
             host: panel
             settingKey: "groupRunningByWorkspace"
             settingLabel: "Group by workspace"
-            settingDescription: "Sort dynamic windows and separate workspace groups."
+            settingDescription: "Separate launch-only pins from running windows sorted by workspace."
             fallbackValue: true
+        }
+
+        SettingToggle {
+            host: panel
+            settingKey: "groupRunningByApp"
+            settingLabel: "Group by app"
+            settingDescription: "One icon per app; click to cycle windows. Combine with workspace grouping."
+        }
+
+        SettingToggle {
+            host: panel
+            settingKey: "integrateWorkspaces"
+            settingLabel: "Integrate with workspace plugin"
+            settingDescription: "Use Omarchy’s native workspace buttons before each workspace’s apps."
+            enabled: panel.boolValue("groupRunningByWorkspace", true)
+            opacity: enabled ? 1 : 0.45
+            activeFocusOnTab: enabled
         }
 
         SettingNumber {
             host: panel
             settingKey: "maxRunningWindows"
-            settingLabel: "Max windows"
+            settingLabel: "Max running icons"
             fallbackValue: 12
             minimumValue: 1
             maximumValue: 30
@@ -2100,7 +2906,8 @@ BarWidget {
             host: panel
             settingKey: "excludedClasses"
             settingLabel: "Excluded classes"
-            placeholder: "Comma-separated regular expressions"
+            settingDescription: "Class patterns, or webapp names such as Omarchy Radio (case insensitive). Launchers stay visible."
+            placeholder: "Signal, Omarchy Radio"
         }
 
         Rectangle {
@@ -2315,8 +3122,11 @@ BarWidget {
         SettingToggle {
             host: panel
             settingKey: "iconOnlyWhenClosed"
-            settingLabel: "Icon only when closed"
-            settingDescription: "Expand pinned apps when a matching window opens."
+            settingLabel: "Hide label of closed apps"
+            settingDescription: "Hide labels on closed pinned apps. Requires Labels. Must keep an icon visible."
+            enabled: panel.boolValue("showLabels", true)
+            opacity: enabled ? 1 : 0.45
+            activeFocusOnTab: enabled
             fallbackValue: true
         }
 
@@ -2342,9 +3152,15 @@ BarWidget {
 
         }
 
+        IconGeneration {
+            host: panel
+        }
+
         SettingToggle {
             host: panel
             settingKey: "invertIconColors"
+            enabled: !panel.boolValue("stylizedIcons", false)
+            opacity: enabled ? 1 : 0.45
             settingLabel: "Invert icon colors"
             settingDescription: "Invert application icon pixels while preserving transparency."
             fallbackValue: false

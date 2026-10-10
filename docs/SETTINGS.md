@@ -13,25 +13,29 @@ applications are managed through the right-click menu instead of editing raw
 JSON in the form. The Applications page can reorder pinned applications with
 Move up and Move down.
 
-Each closed pinned application occupies one launcher item. When it has running
-windows, every matching window is rendered as its own adjacent pinned item;
-those windows are not duplicated in the dynamic running section.
+Closed pins occupy one launcher icon. With workspace grouping, all pins remain
+launchers and their running windows appear separately in their workspace.
+Otherwise, matching open windows appear beside the pin, optionally collapsed
+into one icon by application grouping.
 
 ## Behavior
 
 | Key | Type | Default | Description |
 |---|---:|---:|---|
 | `pinnedApps` | JSON string | Zen, Cursor | Pinned application descriptors |
-| `showRunning` | boolean | `true` | Show non-pinned running windows |
+| `showRunning` | boolean | `true` | Show running windows (including pinned apps in workspace mode) |
 | `groupRunningByWorkspace` | boolean | `true` | Sort running windows by workspace and separate groups |
+| `groupRunningByApp` | boolean | `false` | Combine windows by desktop application; click cycles group members |
+| `integrateWorkspaces` | boolean | `false` | Reuse native workspace buttons within groups; requires workspace grouping |
+| `stylizedIcons` | boolean | `false` | Use themed monochrome icons with local generation and optional agent overrides |
 | `showIcons` | boolean | `true` | Show application icons |
 | `invertIconColors` | boolean | `false` | Invert application icon RGB values while preserving transparency |
 | `showLabels` | boolean | `true` | Show application labels |
-| `iconOnlyWhenClosed` | boolean | `true` | Keep closed pinned applications compact |
+| `iconOnlyWhenClosed` | boolean | `true` | Hide label of closed apps; disabled when Labels is off |
 | `labelFormat` | string | `[APP_NAME] - [WINDOW_TITLE]` | Label template for open windows |
-| `maxRunningWindows` | integer | `12` | Maximum dynamic windows; range 1–30 |
-| `excludedClasses` | string | empty | Comma-separated, case-insensitive class regular expressions |
-| `showWindowPreviews` | boolean | `false` | Show a live thumbnail when hovering an open window |
+| `maxRunningWindows` | integer | `12` | Maximum dynamic icons/groups; range 1–30 |
+| `excludedClasses` | string | empty | Comma-separated native class regexes or exact webapp/recognized TUI names, case-insensitive |
+| `showWindowPreviews` | boolean | `false` | Show clickable live thumbnails for windows in the hovered group |
 | `previewDelay` | integer | `350` | Milliseconds to wait before showing a window preview; range 0–1500 |
 | `previewWidth` | integer | `320` | Preview thumbnail width; range 160–640 |
 | `previewHeight` | integer | `220` | Preview thumbnail height; range 100–480 |
@@ -40,7 +44,10 @@ those windows are not duplicated in the dynamic running section.
 | `animationDuration` | integer | `180` | Milliseconds for item and indicator animations; `0` disables motion |
 
 Closed pinned launchers keep the existing tooltip. Open windows hide that
-tooltip while a preview is scheduled or visible.
+tooltip while a preview is scheduled or visible. When workspace grouping is off,
+each preview includes its window’s workspace number styled like the native
+workspace switcher. The number stays visible for the current workspace too;
+workspace 10 displays `0`, following the switcher.
 
 ### Click actions
 
@@ -198,8 +205,9 @@ toplevel.
 | `sectionSeparator` | `true` | Separate pinned and dynamic sections |
 | `groupRunningByWorkspace` | `true` | Separate adjacent workspace groups |
 
-Workspace numbers are not rendered as text. Windows from the same workspace
-remain adjacent, and a line marks each workspace transition.
+With integration off, a line marks each workspace transition. With integration
+on, actual native workspace buttons precede each group, including empty
+workspaces. `sectionSeparator` controls optional lines between integrated groups.
 
 ## `pinnedApps` format
 
@@ -224,3 +232,77 @@ Each object supports:
 Invalid regular expressions are ignored and reported in the shell log.
 Right-click pin and unpin actions normalize the array and write it back to
 `shell.json`.
+
+## Stylized icon lifecycle
+
+One box contains the stylized-icons toggle and a **Generate icons with default
+Agent** row below it, with no agent subtext. The robot button aligns below the
+switch. During
+queued or running icon work, the robot button is replaced by a flat spinner
+of the same size. Hovering it shows **Generating stylized icons…**. The agent
+prompt opens after its scan finishes; closing settings cancels that popup.
+
+Every generation request checks Python 3 and ImageMagick; **Copy prompt** checks
+`wl-copy` separately. Missing tools show `omarchy pkg add python`,
+`omarchy pkg add imagemagick`, or `omarchy pkg add wl-clipboard`, as applicable.
+These packages are in Arch's official core/extra repositories; package guidance
+is withheld if the configured database resolves a required package elsewhere.
+Nothing is installed automatically.
+
+The robot checks the configured default agent and its executable before opening
+the prompt, and **Run default agent** checks again before launch. Missing setup
+points to **Omarchy → Setup → Default Agent** or `omarchy default agent <agent>`.
+Omarchy's agent setup may use mise rather than Arch packages. Codex and Claude
+also get sign-in checks. Other agents show a reminder to complete login/provider
+setup with `omarchy agent`; their authentication is not automatically verified.
+
+The optional generator requires Python 3 and ImageMagick. Script icons and the
+source-provenance index live in `$XDG_CACHE_HOME/omapanel/stylized-icons`
+(default `~/.cache/omapanel/stylized-icons`). Agent SVG/PNG overrides live in
+`$XDG_DATA_HOME/omapanel/stylized-icons/agent`
+(default `~/.local/share/omapanel/stylized-icons/agent`). Filenames are stable
+hashes of desktop IDs; the robot prompt supplies the exact paths.
+
+New applications get a local fallback automatically. Once agent overrides are
+in use, missing or stale overrides trigger a deduplicated notification directing
+you to the robot button. The button checks all installed apps and prompts only
+for missing/stale overrides. Existing source changes are checked when stylized
+icons are enabled again. Stale overrides fall back to locally generated icons
+until replaced. Generated icons are tinted at display time, so theme changes
+require no regeneration. Original icon files are preserved.
+
+Agent generation is optional and explicitly started from the prompt. The robot
+uses `omarchy agent prompt` with your configured default agent; Copy prompt uses
+`wl-copy`. Invalid or opaque agent assets are rejected in favor of the fallback.
+
+## Workspace integration recovery
+
+Integration reuses the installed `omarchy.workspaces` QML component through a
+guarded adapter. If its required interface is unavailable, integration is
+unavailable and the standalone switcher is kept/restored. The adapter depends
+on the installed component structure and may need updating after shell changes.
+
+The original switcher's layout entry is stored in
+`$XDG_STATE_HOME/omapanel/workspace-integration.json`. Before removing or disabling
+OmaPanel while integrated, turn integration off. If necessary, restore manually:
+
+```bash
+python3 -B ~/.config/omarchy/plugins/atagulalan.omapanel/scripts/workspace-integration.py disable
+```
+
+If the plugin files have already been removed, enable the stock switcher with
+`omarchy plugin enable omarchy.workspaces --section left`.
+
+## Terminal applications
+
+Windows launched with Omarchy’s `org.omarchy.<program>` or shared `TUI.tile` /
+`TUI.float` classes can use the running program’s desktop-entry name/icon.
+The shared `org.omarchy.agent` class resolves the actual agent process; Codex
+uses its installed Omarchy menu name and bundled SVG asset, including the light
+variant on light themes. Recognition reads only processes below marked windows,
+not session titles. Ordinary terminals retain their terminal identity.
+
+App grouping, pinning and name exclusions use the resolved program identity.
+Hide stores `Codex` for Codex windows; lowercase `codex` works too. Existing class
+regexes continue to work. Ambiguous or unrecognized TUIs retain the original
+fallback rather than being assigned a different app’s icon.

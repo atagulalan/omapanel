@@ -4,86 +4,99 @@ import qs.Ui
 
 Item {
     id: chrome
-
     required property var taskbar
-
     anchors.centerIn: parent
-    implicitWidth: content.implicitWidth + (taskbar ? taskbar.barPadHorizontal : 0) * 2
-    implicitHeight: taskbar ? taskbar.panelHeight : content.implicitHeight
+    implicitWidth: content.implicitWidth + taskbar.barPadHorizontal * 2
+    implicitHeight: taskbar.panelHeight
     width: implicitWidth
     height: implicitHeight
-    readonly property bool trimEdges: !!(taskbar && taskbar.trimEdgeItemGaps)
-    readonly property int pinnedCount: taskbar && taskbar.pinnedItems ? taskbar.pinnedItems.length : 0
-    readonly property int runningCount: taskbar && taskbar.runningWindows ? taskbar.runningWindows.length : 0
+    readonly property bool trimEdges: taskbar.trimEdgeItemGaps
+    readonly property int pinnedCount: taskbar.pinnedItems.length
+    readonly property int runningCount: taskbar.runningGroups.length
 
     Rectangle {
         anchors.fill: parent
-        radius: taskbar ? taskbar.barCornerRadius : 0
-        color: taskbar ? taskbar.barBackgroundColor : "transparent"
-        visible: taskbar && taskbar.barBackgroundEnabled
+        radius: taskbar.barCornerRadius
+        color: taskbar.barBackgroundColor
+        visible: taskbar.barBackgroundEnabled
     }
 
     Row {
         id: content
-
-        x: taskbar ? taskbar.barPadHorizontal : 0
-        y: taskbar ? taskbar.barPadTop : 0
+        x: taskbar.barPadHorizontal
+        y: taskbar.barPadTop
         spacing: 0
-
         TaskbarSeparator {
             taskbar: taskbar
-            visible: !!(taskbar && taskbar.leadingSeparator && taskbar.pinnedApps && taskbar.pinnedApps.length > 0)
+            visible: taskbar.leadingSeparator && chrome.pinnedCount > 0
         }
-
         Repeater {
-            model: taskbar ? taskbar.pinnedItems : []
-
-            AppChip {
+            model: taskbar.pinnedItems.length
+            Item {
+                id: pinDelegate
                 required property int index
-                required property var modelData
-
-                taskbar: taskbar
-                app: modelData && modelData.app ? modelData.app : null
-                appWindow: modelData ? modelData.window : null
-                pinned: true
-                includeLeadingHitPadding: !chrome.trimEdges || index > 0
-                includeTrailingHitPadding: !chrome.trimEdges || index < chrome.pinnedCount - 1 || chrome.runningCount > 0
+                readonly property var entry: taskbar.pinnedItems[index]
+                implicitWidth: pinChip.width
+                implicitHeight: pinChip.height
+                AppChip {
+                    id: pinChip
+                    taskbar: taskbar
+                    app: pinDelegate.entry.app
+                    appWindow: pinDelegate.entry.window
+                    windowGroup: pinDelegate.entry.windows
+                    groupKey: pinDelegate.entry.key
+                    launchOnly: pinDelegate.entry.launchOnly
+                    hasWindows: pinDelegate.entry.hasWindows
+                    pinned: true
+                    includeLeadingHitPadding: !chrome.trimEdges || pinDelegate.index > 0
+                    includeTrailingHitPadding: !chrome.trimEdges || pinDelegate.index < chrome.pinnedCount - 1 || chrome.runningCount > 0
+                }
             }
-
         }
-
         TaskbarSeparator {
             taskbar: taskbar
-            visible: !!(taskbar && taskbar.sectionSeparator && taskbar.pinnedApps && taskbar.pinnedApps.length > 0 && taskbar.runningWindows && taskbar.runningWindows.length > 0)
+            visible: taskbar.sectionSeparator && chrome.pinnedCount > 0 && (chrome.runningCount > 0 || taskbar.workspaceIntegrationActive)
         }
-
         Repeater {
-            model: taskbar ? taskbar.runningWindows : []
-
+            model: taskbar.workspaceIntegrationActive ? 0 : taskbar.runningGroups.length
             Row {
+                id: runningDelegate
                 required property int index
-                required property var modelData
-
+                readonly property var entry: taskbar.runningGroups[index]
                 spacing: 0
-
                 TaskbarSeparator {
                     taskbar: taskbar
-                    visible: !!(taskbar && taskbar.startsWorkspaceGroup(parent.index, parent.modelData))
+                    visible: taskbar.groupRunningByWorkspace && runningDelegate.index > 0
+                        && runningDelegate.entry.workspace !== taskbar.runningGroups[runningDelegate.index - 1].workspace
                 }
-
                 AppChip {
                     taskbar: taskbar
-                    app: null
-                    appWindow: parent.modelData
+                    app: runningDelegate.entry.app
+                    appWindow: runningDelegate.entry.window
+                    windowGroup: runningDelegate.entry.windows
+                    groupKey: runningDelegate.entry.key
+                    hasWindows: true
                     pinned: false
-                    includeLeadingHitPadding: !chrome.trimEdges || parent.index > 0 || chrome.pinnedCount > 0
-                    includeTrailingHitPadding: !chrome.trimEdges || parent.index < chrome.runningCount - 1
+                    includeLeadingHitPadding: !chrome.trimEdges || runningDelegate.index > 0 || chrome.pinnedCount > 0
+                    includeTrailingHitPadding: !chrome.trimEdges || runningDelegate.index < chrome.runningCount - 1
                 }
-
             }
-
         }
-
+        Repeater {
+            model: taskbar.workspaceIntegrationActive ? taskbar.nativeWorkspaceIds.length : 0
+            Row {
+                id: workspaceDelegate
+                required property int index
+                spacing: 0
+                TaskbarSeparator {
+                    taskbar: taskbar
+                    visible: taskbar.sectionSeparator && workspaceDelegate.index > 0
+                }
+                WorkspaceLane {
+                    taskbar: taskbar
+                    workspaceId: taskbar.nativeWorkspaceIds[workspaceDelegate.index]
+                }
+            }
+        }
     }
-
 }

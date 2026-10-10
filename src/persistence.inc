@@ -7,6 +7,14 @@
     }
 
     function persistSetting(key, value) {
+        if (key === "integrateWorkspaces") {
+            requestWorkspaceIntegration(value === true, null);
+            return;
+        }
+        if (key === "groupRunningByWorkspace" && value === false && integrateWorkspaces) {
+            requestWorkspaceIntegration(false, {key: key, value: value});
+            return;
+        }
         var nextSettings = Object.assign({
         }, settings || {
         });
@@ -24,6 +32,10 @@
     }
 
     function resetSettings() {
+        if (integrateWorkspaces) {
+            requestWorkspaceIntegration(false, {reset: true});
+            return;
+        }
         persistSettings(defaultSettings());
     }
 

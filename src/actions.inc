@@ -41,7 +41,7 @@
     function launchNewWindow(app, toplevel) {
         var descriptor = descriptorFor(app, toplevel);
         var entry = desktopEntryFor(descriptor, toplevel);
-        if (entry && bar && bar.shell && bar.shell.appLibrary) {
+        if (entry && !entry.tui && bar && bar.shell && bar.shell.appLibrary) {
             var id = normalizeDesktopId(entry.id || descriptor.desktopId);
             if (id) {
                 bar.shell.appLibrary.launch(id, asPlainUiText(String(entry.name || descriptor.label || id)));
@@ -98,13 +98,14 @@
         }
         close();
         if (action === "Focus or Launch") {
-            activateOrLaunch(app, toplevel);
+            if (anchor && anchor.windowGroup !== undefined) focusChipGroup(anchor);
+            else activateOrLaunch(app, toplevel);
         } else if (action === "New Window") {
             launchNewWindow(app, toplevel);
         } else if (action === "Close Window") {
             closeWindow(toplevel);
         } else if (action === "Close All Windows") {
-            var targets = windowsForDescriptor(app, toplevel);
+            var targets = anchor && anchor.windowGroup ? anchor.windowGroup : visibleDescriptorWindows(app, toplevel);
             for (var i = 0; i < targets.length; i++) closeWindow(targets[i])
         }
     }

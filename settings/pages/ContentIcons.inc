@@ -12,8 +12,11 @@
     SettingToggle {
         host: panel
         settingKey: "iconOnlyWhenClosed"
-        settingLabel: "Icon only when closed"
-        settingDescription: "Expand pinned apps when a matching window opens."
+        settingLabel: "Hide label of closed apps"
+        settingDescription: "Hide labels on closed pinned apps. Requires Labels. Must keep an icon visible."
+        enabled: panel.boolValue("showLabels", true)
+        opacity: enabled ? 1 : 0.45
+        activeFocusOnTab: enabled
         fallbackValue: true
     }
 
@@ -39,9 +42,15 @@
 
     }
 
+    IconGeneration {
+        host: panel
+    }
+
     SettingToggle {
         host: panel
         settingKey: "invertIconColors"
+        enabled: !panel.boolValue("stylizedIcons", false)
+        opacity: enabled ? 1 : 0.45
         settingLabel: "Invert icon colors"
         settingDescription: "Invert application icon pixels while preserving transparency."
         fallbackValue: false

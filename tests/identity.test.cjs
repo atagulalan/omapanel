@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const identity = vm.createContext({});
+vm.runInContext(fs.readFileSync('AppIdentity.js', 'utf8').replace(/^\.pragma.*$/gm, ''), identity);
+const id = 'opnfiicnhdgdmaedjjiklecdikkdieoh';
+const radio = {id: `chrome-${id}-Default`, startupClass: `crx_${id}`, name: 'Omarchy Radio'};
+const browser = {id: 'chromium', startupClass: 'chromium', name: 'Chromium'};
+assert.equal(identity.matchingEntry([radio.id], [browser, radio]), radio);
+assert.equal(identity.matchingEntry([radio.startupClass], [browser, radio]), radio);
+assert.equal(identity.matchingEntry(['chromium'], [browser, radio]), browser);
+assert.equal(identity.isWebapp(radio, [radio.id]), true);
+assert.equal(identity.isWebapp(browser, ['chromium']), false);
+assert.equal(identity.isWebapp({execString: 'chromium --app=https://example.org'}, []), true);
+assert.equal(identity.normalizedName('  OMARCHY  radio '), 'omarchy radio');
+assert.deepEqual(Array.from(identity.exclusionPatterns('Signal, "Radio, Live", foot')), ['Signal', 'Radio, Live', 'foot']);
+assert.equal(identity.exclusionToken('Radio, Live'), '"Radio, Live"');
+console.log('Application identities and exclusion names: passed');

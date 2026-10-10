@@ -14,8 +14,12 @@
     property Item previewAnchor: null
     property var previewToplevel: null
     property int previewHoverCount: 0
-    readonly property bool opened: contextMenuOpen || settingsPanelOpen
-    readonly property var contextWindows: windowsForDescriptor(contextApp, contextWindow)
+    property bool previewPointerHovered: false
+    property string pendingPreviewGroupKey: ""
+    property string previewGroupKey: ""
+    readonly property var previewWindows: windowsForGroupKey(previewGroupKey)
+    readonly property bool opened: contextMenuOpen || settingsPanelOpen || agentPromptOpen
+    readonly property var contextWindows: contextGroupKey ? windowsForGroupKey(contextGroupKey) : visibleDescriptorWindows(contextApp, contextWindow)
     readonly property var contextEntry: desktopEntryFor(contextApp, contextWindow)
     readonly property var contextActions: {
         var actions = contextEntry && contextEntry.actions ? contextEntry.actions : [];
@@ -26,24 +30,25 @@
     readonly property int contextPinnedIndex: pinnedIndex(contextApp, contextWindow)
     readonly property bool contextIsPinned: contextPinnedIndex >= 0
     readonly property bool contextCanLaunch: !!(contextEntry || (contextApp && contextApp.launch))
+    property string clickCursorKey: ""
+    property string clickCursorAddress: ""
+    property double clickCursorDeadline: 0
+    property string contextGroupKey: ""
     readonly property var pinnedItems: {
         var revision = hyprlandRevision;
         var result = [];
         for (var i = 0; i < pinnedApps.length; i++) {
             var app = pinnedApps[i];
-            var windows = windowsForDescriptor(app, null);
-            if (windows.length === 0) {
-                result.push({
-                    "app": app,
-                    "window": null
-                });
-                continue;
-            }
-            for (var j = 0; j < windows.length; j++) {
-                result.push({
-                    "app": app,
-                    "window": windows[j]
-                });
+            var windows = visibleDescriptorWindows(app, null);
+            var key = "pin:" + app.desktopId + ":" + app.match;
+            if (groupRunningByWorkspace || windows.length === 0 || groupRunningByApp) {
+                result.push({app: app, window: groupRunningByWorkspace ? null : (windows[0] || null),
+                    key: key, windows: groupRunningByWorkspace ? [] : windows,
+                    launchOnly: groupRunningByWorkspace, hasWindows: windowsForDescriptor(app, null).length > 0});
+            } else {
+                for (var j = 0; j < windows.length; j++)
+                    result.push({app: app, window: windows[j], key: key + ":" + normalizedAddress(windows[j]),
+                        windows: [windows[j]], launchOnly: false, hasWindows: true});
             }
         }
         return result;
@@ -60,9 +65,10 @@
             if (!candidate || !windowClass(candidate))
                 continue;
 
-            if (isPinnedWindow(candidate) || isExcludedWindow(candidate))
+            if ((!groupRunningByWorkspace && isPinnedWindow(candidate)) || isExcludedWindow(candidate))
                 continue;
 
+            if (workspaceIntegrationActive && (windowWorkspaceId(candidate) <= 0 || nativeWorkspaceIds.indexOf(windowWorkspaceId(candidate)) < 0)) continue;
             result.push(candidate);
         }
         if (groupRunningByWorkspace)
@@ -78,5 +84,5 @@
                 return entry.window;
             });
 
-        return result.slice(0, maxRunningWindows);
+        return result;
     }

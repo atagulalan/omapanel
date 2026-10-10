@@ -87,7 +87,7 @@ length-capped before matching and desktop lookup.
 
 When the pin also has a `desktopId` and the window resolves to a desktop entry,
 that entry's ID must match the pin. A matched pinned window is excluded from the
-dynamic list. If more than one window matches, the active one is preferred;
+dynamic list unless workspace grouping makes pins launch-only. If more than one window matches, the active one is preferred;
 otherwise the first match is used. The context menu uses the same descriptor to
 list every matching window.
 
@@ -137,17 +137,26 @@ application name is shown.
 Pinned applications with a `desktopId` resolve New Window / desktop actions
 from that ID first, rather than from a window's heuristic class lookup.
 
-## Workspace grouping
+## Application and workspace grouping
 
-Only the dynamic section is sorted by workspace. Original order is preserved
-within a workspace. A `TaskbarSeparator` is inserted before every delegate
-whose workspace differs from the preceding delegate.
+`TaskGroups.js` builds stable groups from desktop identities, optional workspace
+IDs, and normalized window addresses. Distinct browser webapps resolve exact
+installed entries before heuristic lookup. `AppIdentity.js` maps browser app IDs
+and StartupWMClass variants; exclusions match normalized webapp names or native
+class regexes. Quoted names support commas in the exclusion list.
 
-Pinned applications remain workspace-independent:
+Workspace grouping keeps pins launch-only and sorts running windows by workspace.
+Application grouping collapses matches globally or per workspace. Context menus,
+click cycling, and preview collections share the chip's group key. Active styling
+checks all group members. Running limits apply to icons after grouping.
 
-```text
-pinned | workspace 1 windows | workspace 5 windows | workspace 9 windows
-```
+Native integration loads the installed `Workspaces.qml` without copying it.
+The guarded adapter sets each native component's Repeater to one workspace ID;
+its original delegate, focus action, workspace list and active bindings remain
+in use. `workspace-integration.py` serializes transitions through Omarchy CLI,
+records the stock switcher's placement/settings, and restores them on disable.
+Incompatible native components trigger restoration. Integrated lists omit
+special/scratchpad windows and IDs absent from the native switcher.
 
 ## Mouse-wheel focus cycling
 
@@ -251,7 +260,9 @@ The context menu is a `PopupCard` anchored to the clicked item. It builds:
 - pin or unpin state;
 - single-window and multi-window close actions.
 
-The settings gear is placed in the upper-right corner of the menu header.
+The settings gear and hide button share the upper-right menu header. Hide saves
+the resolved webapp name or native class pattern. Pending and visible previews
+are cancelled before opening menus/settings and blocked while they are open.
 
 Pin and unpin operations copy the current settings object, serialize the
 normalized `pinnedApps` array, and call
@@ -294,10 +305,9 @@ clicks.
 ## Scope
 
 - OmaPanel supports horizontal bars and hides itself on vertical bars.
-- Every dynamic window is represented by its own chip.
-- Left-click chooses the active matching pinned window, or the first match when
-  none is active. Other matches remain accessible from the context menu.
-- Workspace IDs are represented by separators rather than text.
+- Dynamic windows can be grouped by app, workspace, or both.
+- Left-click cycles app-group members, or launches a workspace-mode pin.
+- Workspace integration uses native buttons; ordinary grouping uses separators.
 - `launch` is a user-provided shell command and is treated as trusted
   configuration.
 
@@ -316,3 +326,34 @@ omarchy-shell shell ping
 
 Runtime verification also checks the current Quickshell log for OmaPanel load
 errors.
+
+## Monochrome icons
+
+`stylized-icons.py` reads JSON application descriptors from stdin. Filesystem
+lookup resolves originals even when Qt supplies `image://icon` URLs. Generation
+prefers installed symbolic assets, original reference vectors, then centered
+alpha masks. Source hashes are checked only on enable/refresh or first discovery.
+A locked atomic index tracks script assets independently of persistent agent
+overrides, rejects invalid agent assets, marks source changes stale, and deduplicates
+notifications. The tint shader preserves alpha and follows the current chip color.
+The robot prompt uses the system's default agent command with explicit output paths.
+
+Regression checks:
+
+```bash
+node tests/identity.test.cjs
+node tests/groups.test.cjs
+python3 -B -m unittest discover -s tests -p 'test_*.py'
+```
+
+## TUI identities
+
+`tui-identities.py` receives window PIDs/classes and desktop descriptors from
+QML. It scans bounded descendant process names beneath user-owned windows only for marked
+Omarchy TUI classes. TUI desktop commands take precedence over synthetic agent
+entries derived from the installed menu and bundled SVGs. Shared classes are
+resolved by actual program; ambiguous desktop matches are left unresolved.
+QML updates window names, icons, app grouping, pin matching and exclusion names
+from the resulting identity index. Closed pins retain a catalog entry for launch
+and theme-appropriate icons. Resolution does not relabel ordinary terminals by
+mutable titles or scan unrelated system processes.
